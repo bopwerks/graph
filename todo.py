@@ -10,11 +10,19 @@ class Connectable(object):
         
     def connect(self, connectable):
         self._connections.add(connectable)
+        connectable._connections.add(self)
         dispatch(MessageType.CONNECT, self, connectable)
 
     def disconnect(self, connectable):
         dispatch(MessageType.DISCONNECT, self, connectable)
-        self._connections.remove(connectable)
+        try:
+            self._connections.remove(connectable)
+        except KeyError:
+            pass
+        try:
+            connectable._connections.remove(self)
+        except KeyError:
+            pass
 
     def connections(self):
         return self._connections
@@ -113,10 +121,6 @@ class Range(Field):
     def fromString(sval):
         assert False
 
-#@notify(Node.title, GraphicalNode)
-#def update(node, gnode):
-#    gnode.setText(node.title.value())
-
 class FieldSet(object):
     def __init__(self):
         for fieldname in self.__fields():
@@ -170,9 +174,9 @@ class MessageType(object):
     UPDATE     = 3
 
 dispatchtab = {
-    MessageType.CONNECT: {},
+    MessageType.CONNECT:    {},
     MessageType.DISCONNECT: {},
-    MessageType.UPDATE: {}
+    MessageType.UPDATE:     {}
 }
 
 def update(sender, fieldname, receiver):
@@ -228,17 +232,7 @@ def dispatch(message, sender, receiver, field=""):
     for action in actions:
         action(sender, receiver)
 
-#n = Node()
-#print(n)
-#print(n.fields())
 
-#class GraphicalNode(FieldSet):
-#    X = Number
-#    Y = Number
-
-#node = Node()
-#gnode = GraphicalNode
-#node.connect(gnode)
 
 class Person(Connectable, FieldSet):
     Name = Text
@@ -249,7 +243,8 @@ class Person(Connectable, FieldSet):
         FieldSet.__init__(self)
 
 class GraphicalPerson(Connectable):
-    pass
+    def __init__(self):
+        Connectable.__init__(self)
 
 @update(Person, "Name", GraphicalPerson)
 def onNameUpdate(person, gperson):
@@ -263,45 +258,50 @@ def onAgeUpdate(person, gperson):
 def onPersonDisconnect(person, gperson):
     print("GraphicalPerson notified that Person disconnected")
 
+def set_value(fieldset, fieldname, value):
+    assert isinstance(fieldset, FieldSet)
+    assert fieldname in fieldset.__dict__
+    assert isinstance(fieldset.__dict__[fieldname], Field)
+    return fieldset.__dict__[fieldname].setValue(value)
+
+def get_value(fieldset, fieldname):
+    return fieldset.__dict__[fieldname].value()
+
+#print("Making a Person")
 p = Person()
+
+#print("Setting name to Jesse")
 p.Name.setValue("Jesse")
+
+#print("Setting age to 29")
 p.Age.setValue(29)
+
+#print("Making a GraphicalPerson")
 gp = GraphicalPerson()
+
+#print("Connecting Person to GraphicalPerson")
 p.connect(gp)
+
+#print("Setting age to 30")
 p.Age.setValue(30)
+
+#print("Disconnecting Person from GraphicalPerson")
 p.disconnect(gp)
 
-# class Connector(object):
-#     __conn_id = 0
-#     def __init__(self, value=None):
-#         Connector.__conn_id += 1
-#         self._id = Connector.__conn_id
-#         self._value = value
-#         self._listeners = set()
+#print("Setting age to 40")
+p.Age.setValue(40)
 
-#     def setValue(self, value, sender):
-#         self._value = value
-#         self._publish(sender)
+#print("Disconnecting GraphicalPerson from Person")
+gp.disconnect(p)
 
-#     def value(self):
-#         return self._value
+#print("Setting name to John")
+p.Name.setValue("John")
 
-#     def _publish(self, sender):
-#         for listener in self._listeners:
-#             if listener is not sender:
-#                 listener.onConnectorUpdate(self)
+#print("Deleting GraphicalPerson")
+del gp
 
-#     def __str__(self):
-#         rval = "Connector({0}".format(repr(self._value))
-#         if self._listeners:
-#             rval += ", "
-#         for listener in self._listeners:
-#             rval += repr(listener)
-#         rval += ")"
-#         return rval
-
-#     def __hash__(self):
-#         return hash(self._id)
+#print("Setting age to 42")
+p.Age.setValue(42)
 
 NODES = set()
 EDGES = set()
