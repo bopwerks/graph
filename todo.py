@@ -4,6 +4,273 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
+class Connectable(object):
+    def __init__(self):
+        self._connections = set()
+        
+    def connect(self, connectable):
+        self._connections.add(connectable)
+        dispatch(MessageType.CONNECT, self, connectable)
+
+    def disconnect(self, connectable):
+        dispatch(MessageType.DISCONNECT, self, connectable)
+        self._connections.remove(connectable)
+
+    def connections(self):
+        return self._connections
+
+    def __del__(self):
+        for receiver in self.connections():
+            dispatch(MessageType.DISCONNECT, self, receiver)
+        self._connections.clear()
+
+class Field(object):
+    def __init__(self, initialValue=None, parent=None, name=""):
+        if type(initialValue) == type(self):
+            return initialValue
+        self._value = initialValue
+        self._parent = parent
+        self._name = name
+
+    def _satisfiesConstraint(self, value):
+        return True
+
+    def setValue(self, value, sender=None):
+        if not self._satisfiesConstraint(value):
+            raise TypeError("Value {0} is not a {1}".format(value, self))
+        self._value = value
+        self._publish(sender if sender else self._parent)
+
+    def value(self):
+        return self._value
+
+    def _publish(self, sender):
+        assert self._value
+        for receiver in self._parent.connections():
+            if receiver is not sender:
+                dispatch(MessageType.UPDATE, sender, receiver, self._name)
+
+    def __str__(self):
+        return str(self._value)
+
+    def __repr__(self):
+        return repr(self._value)
+
+class Number(Field):
+    def __init__(self, initialValue=0.0, parent=None, name=""):
+        super().__init__(initialValue, parent, name)
+
+    def _satisfiesConstraint(self, value):
+        return type(value) == int or type(value) == float
+
+    def fromString(sval):
+        try:
+            value = float(sval)
+        except ValueError:
+            raise TypeError("String {0} cannot be converted to a number".format(repr(sval)))
+        return Number(value)
+
+class Boolean(Field):
+    def __init__(self, initialValue=False, parent=None, name=""):
+        super().__init__(initialValue, parent, name)
+
+    def _satisfiesConstraint(self, value):
+        return type(value) == int or type(value) == float
+
+    def fromString(sval):
+        sval = sval.lower()
+        if sval == "true":
+            return Boolean(True)
+        elif sval == "false":
+            return Boolean(False)
+        else:
+            raise TypeError("String {0} cannot be converted to a boolean".format(repr(sval)))
+
+class Text(Field):
+    def __init__(self, initialValue="", parent=None, name=""):
+        super().__init__(initialValue, parent, name)
+
+    def _satisfiesConstraint(self, value):
+        return type(value) == str
+
+    def fromString(sval):
+        return Text(sval)
+
+# TODO: Replace this with a function that generates a unique class
+class Range(Field):
+    def __init__(self, valuetype, minval, maxval, parent):
+        assert valuetype == Text or valuetype == Number
+        super().__init__(self, minval, parent)
+        self._type = valuetype
+        self._min = valuetype(minval)
+        self._max = valuetype(maxval)
+
+    def _satisfiesConstraint(self, value):
+        return type(value) == valuetype and \
+            self._min.value() <= value and \
+            value <= self._max.value()
+
+    def fromString(sval):
+        assert False
+
+#@notify(Node.title, GraphicalNode)
+#def update(node, gnode):
+#    gnode.setText(node.title.value())
+
+class FieldSet(object):
+    def __init__(self):
+        for fieldname in self.__fields():
+#            print("Adding instance of {0} named {1}".format(self.__getType(fieldname), fieldname))
+            self.__dict__[fieldname] = self.__getType(fieldname)(parent=self, name=fieldname)
+
+    def field(name):
+        """Helper function"""
+        field = self.__dict__.get(name, None)
+        return (type(self), field)
+
+    def fields(self):
+        return [self.__dict__[f] for f in self.__fields()]
+
+    def __fields(self):
+        fields = []
+        for fieldname in dir(type(self)):
+            if fieldname.startswith("_"):
+                continue
+            T = self.__getType(fieldname)
+            if not T:
+                continue
+#            print(T)
+            if not issubclass(T, Field):
+                continue
+            fields.append(fieldname)
+        return fields
+
+    def __getType(self, fieldname):
+        if fieldname not in type(self).__dict__:
+            return None
+        return type(self).__dict__[fieldname]
+
+    def __str__(self):
+        rval = "<{0}".format(self.__class__.__name__)
+        for name in self.__fields():
+            type = self.__getType(name)
+            rval += " {0}={1}".format(name, type.__name__)
+        rval += ">"
+        return rval
+
+class Node(FieldSet):
+    Title = Text
+    Urgent = Boolean
+    Important = Boolean
+
+
+class MessageType(object):
+    CONNECT    = 1
+    DISCONNECT = 2
+    UPDATE     = 3
+
+dispatchtab = {
+    MessageType.CONNECT: {},
+    MessageType.DISCONNECT: {},
+    MessageType.UPDATE: {}
+}
+
+def update(sender, fieldname, receiver):
+    def decorate(action):
+        table = dispatchtab[MessageType.UPDATE]
+        if sender not in table:
+            table[sender] = {}
+        table = table[sender]
+        if fieldname not in table:
+            table[fieldname] = {}
+        table = table[fieldname]
+        if receiver not in table:
+            table[receiver] = set()
+        table[receiver].add(action)
+#        print(dispatchtab)
+        return action
+    return decorate
+
+def connect(sender, receiver):
+    def decorate(action):
+        table = dispatchtab[MessageType.CONNECT]
+        if sender not in table:
+            table[sender] = {}
+        table = table[sender]
+        if receiver not in table:
+            table[receiver] = set()
+        table[receiver].add(action)
+#        print(dispatchtab)
+        return action
+    return decorate
+
+def disconnect(sender, receiver):
+    def decorate(action):
+        table = dispatchtab[MessageType.DISCONNECT]
+        if sender not in table:
+            table[sender] = {}
+        table = table[sender]
+        if receiver not in table:
+            table[receiver] = set()
+        table[receiver].add(action)
+#        print(dispatchtab)
+        return action
+    return decorate
+
+def dispatch(message, sender, receiver, field=""):
+#    print("dispatch({0}, {1}, {2}, {3})".format(repr(message),
+#          repr(sender), repr(receiver), repr(field)))
+    actions = dispatchtab.get(message, {}).get(type(sender), {})
+    if field:
+        actions = actions.get(field, {}).get(type(receiver), [])
+    else:
+        actions = actions.get(type(receiver), [])
+    for action in actions:
+        action(sender, receiver)
+
+#n = Node()
+#print(n)
+#print(n.fields())
+
+#class GraphicalNode(FieldSet):
+#    X = Number
+#    Y = Number
+
+#node = Node()
+#gnode = GraphicalNode
+#node.connect(gnode)
+
+class Person(Connectable, FieldSet):
+    Name = Text
+    Age = Number
+
+    def __init__(self):
+        Connectable.__init__(self)
+        FieldSet.__init__(self)
+
+class GraphicalPerson(Connectable):
+    pass
+
+@update(Person, "Name", GraphicalPerson)
+def onNameUpdate(person, gperson):
+    print("GraphicalPerson notified that Person name is now {0}".format(person.Name.value()))
+
+@update(Person, "Age", GraphicalPerson)
+def onAgeUpdate(person, gperson):
+    print("GraphicalPerson notified that Person age is now {0}".format(person.Age.value()))
+
+@disconnect(Person, GraphicalPerson)
+def onPersonDisconnect(person, gperson):
+    print("GraphicalPerson notified that Person disconnected")
+
+p = Person()
+p.Name.setValue("Jesse")
+p.Age.setValue(29)
+gp = GraphicalPerson()
+p.connect(gp)
+p.Age.setValue(30)
+p.disconnect(gp)
+
 # class Connector(object):
 #     __conn_id = 0
 #     def __init__(self, value=None):
@@ -370,7 +637,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle(title)
     
-app = QtWidgets.QApplication(sys.argv)
-win = MainWindow("To-Done")
-win.show()
-app.exec_()
+#app = QtWidgets.QApplication(sys.argv)
+#win = MainWindow("To-Done")
+#win.show()
+#app.exec_()
