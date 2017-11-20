@@ -53,7 +53,6 @@ class Field(object):
         return self._value
 
     def _publish(self, sender):
-        assert self._value
         for receiver in self._parent.connections():
             if receiver is not sender:
                 dispatch(MessageType.UPDATE, sender, receiver, self._name)
@@ -63,6 +62,9 @@ class Field(object):
 
     def __repr__(self):
         return repr(self._value)
+
+    def __hash__(self):
+        return hash(self._value)
 
 class Number(Field):
     def __init__(self, initialValue=0.0, parent=None, name=""):
@@ -83,7 +85,7 @@ class Boolean(Field):
         super().__init__(initialValue, parent, name)
 
     def _satisfiesConstraint(self, value):
-        return type(value) == int or type(value) == float
+        return type(value) == bool
 
     def fromString(sval):
         sval = sval.lower()
@@ -123,7 +125,7 @@ class Range(Field):
 
 class FieldSet(object):
     def __init__(self):
-        for fieldname in self.__fields():
+        for fieldname in self._fields():
 #            print("Adding instance of {0} named {1}".format(self.__getType(fieldname), fieldname))
             self.__dict__[fieldname] = self.__getType(fieldname)(parent=self, name=fieldname)
 
@@ -133,15 +135,17 @@ class FieldSet(object):
         return (type(self), field)
 
     def fields(self):
-        return [self.__dict__[f] for f in self.__fields()]
+        return [self.__dict__[f] for f in self._fields()]
 
-    def __fields(self):
+    def _fields(self):
         fields = []
+#        print(type(self))
+#        print(dir(type(self)))
         for fieldname in dir(type(self)):
             if fieldname.startswith("_"):
                 continue
             T = self.__getType(fieldname)
-            if not T:
+            if not T or type(T) != type:
                 continue
 #            print(T)
             if not issubclass(T, Field):
@@ -156,17 +160,11 @@ class FieldSet(object):
 
     def __str__(self):
         rval = "<{0}".format(self.__class__.__name__)
-        for name in self.__fields():
+        for name in self._fields():
             type = self.__getType(name)
             rval += " {0}={1}".format(name, type.__name__)
         rval += ">"
         return rval
-
-class Node(FieldSet):
-    Title = Text
-    Urgent = Boolean
-    Important = Boolean
-
 
 class MessageType(object):
     CONNECT    = 1
@@ -191,7 +189,7 @@ def update(sender, fieldname, receiver):
         if receiver not in table:
             table[receiver] = set()
         table[receiver].add(action)
-#        print(dispatchtab)
+        print(dispatchtab)
         return action
     return decorate
 
@@ -204,7 +202,7 @@ def connect(sender, receiver):
         if receiver not in table:
             table[receiver] = set()
         table[receiver].add(action)
-#        print(dispatchtab)
+        print(dispatchtab)
         return action
     return decorate
 
@@ -232,32 +230,6 @@ def dispatch(message, sender, receiver, field=""):
     for action in actions:
         action(sender, receiver)
 
-
-
-class Person(Connectable, FieldSet):
-    Name = Text
-    Age = Number
-
-    def __init__(self):
-        Connectable.__init__(self)
-        FieldSet.__init__(self)
-
-class GraphicalPerson(Connectable):
-    def __init__(self):
-        Connectable.__init__(self)
-
-@update(Person, "Name", GraphicalPerson)
-def onNameUpdate(person, gperson):
-    print("GraphicalPerson notified that Person name is now {0}".format(person.Name.value()))
-
-@update(Person, "Age", GraphicalPerson)
-def onAgeUpdate(person, gperson):
-    print("GraphicalPerson notified that Person age is now {0}".format(person.Age.value()))
-
-@disconnect(Person, GraphicalPerson)
-def onPersonDisconnect(person, gperson):
-    print("GraphicalPerson notified that Person disconnected")
-
 def set_value(fieldset, fieldname, value):
     assert isinstance(fieldset, FieldSet)
     assert fieldname in fieldset.__dict__
@@ -267,180 +239,108 @@ def set_value(fieldset, fieldname, value):
 def get_value(fieldset, fieldname):
     return fieldset.__dict__[fieldname].value()
 
-#print("Making a Person")
-p = Person()
+#@update(Person, "Name", GraphicalPerson)
+#def onNameUpdate(person, gperson):
+#    pass
 
-#print("Setting name to Jesse")
-p.Name.setValue("Jesse")
+# @update(Person, "Age", GraphicalPerson)
+# def onAgeUpdate(person, gperson):
+#     pass
 
-#print("Setting age to 29")
-p.Age.setValue(29)
+# @disconnect(Person, GraphicalPerson)
+# def onPersonDisconnect(person, gperson):
+#     pass
 
-#print("Making a GraphicalPerson")
-gp = GraphicalPerson()
+class Edge(Connectable, FieldSet):
+    Weight = Number
+    
+    def __init__(self, source, dest, value=None):
+        Connectable.__init__(self)
+        FieldSet.__init__(self)
 
-#print("Connecting Person to GraphicalPerson")
-p.connect(gp)
-
-#print("Setting age to 30")
-p.Age.setValue(30)
-
-#print("Disconnecting Person from GraphicalPerson")
-p.disconnect(gp)
-
-#print("Setting age to 40")
-p.Age.setValue(40)
-
-#print("Disconnecting GraphicalPerson from Person")
-gp.disconnect(p)
-
-#print("Setting name to John")
-p.Name.setValue("John")
-
-#print("Deleting GraphicalPerson")
-del gp
-
-#print("Setting age to 42")
-p.Age.setValue(42)
-
-NODES = set()
-EDGES = set()
-
-class Edge(object):
-    def __init__(self, source, dest, value=None, *listeners):
-        EDGES.add(self)
+class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
+    X1 = Number
+    Y1 = Number
+    X2 = Number
+    Y2 = Number
+    
+    def __init__(self, source, dest):
+        QtWidgets.QGraphicsItemGroup.__init__(self)
+        Connectable.__init__(self)
+        FieldSet.__init__(self)
         self._source = source
         self._dest = dest
-        self._value = value
-        self._listeners = set(listeners)
+        self.X1.setValue(self._source.x())
+        self.Y1.setValue(self._source.y())
+        self.X2.setValue(self._dest.x())
+        self.Y2.setValue(self._dest.y())
+        self._line = QtWidgets.QGraphicsLineItem(self._source.x(),
+                                                 self._source.y(),
+                                                 self._dest.x(),
+                                                 self._dest.y())
+        self.addToGroup(self._line)
 
-    def source(self):
-        return self._source
 
-    def destination(self):
-        return self._dest
+class Node(Connectable, FieldSet):
+    Title = Text
+    Urgent = Boolean
+    Important = Boolean
 
-    def value(self):
-        return self._value
-
-    def addListener(self, listener):
-        self._listeners.add(listener)
-
-    def setValue(self, value, setter):
-        self._value = value
-        node = self.other(setter)
-        if node:
-            node.onEdgeUpdate(setter)
-            return
-        for listener in listeners:
-            if listener != setter:
-                setter.onEdgeUpdate(setter)
-
-    def onNodeUpdate(self, node):
-        # TODO: use node's value to compute new value
-        newvalue = None
-        self.setValue(newvalue, node)
-
-    def other(self, requester):
-        if requester is self._source:
-            return self._dest
-        elif requester is self._dest:
-            return self._source
-        else:
-            return None
-
-class GraphicalEdge(QtWidgets.QGraphicsItemGroup):
-    def __init__(self):
-        super().__init__()
-        self._x1 = 0
-        self._y1 = 0
-        self._x2 = 0
-        self._y2 = 0
-        self._line = QGraphicsLineItem(0, 0, 0, 0)
-
-    def onEdgeUpdate(self, edge):
-        # TODO: update graphics according to edge data
-        self._line
-        pass
-
-class Node(object):
-    __node_id = 0
-    def __init__(self, title="", urgent=True, important=True, *listeners):
-        Node.__node_id += 1
-        self._id = Node.__node_id
-        self._title = title
-        self._urgentp = urgent
-        self._importantp = important
-        self._listeners = set(listeners)
+#    __node_id = 0
+    def __init__(self, title="", urgent=True, important=True):
+#        print("NODE")
+#        print(dir(type(self)))
+        Connectable.__init__(self)
+        FieldSet.__init__(self)
+#        Node.__node_id += 1
+#        self._id = Node.__node_id
+        
+        self.Title.setValue(title)
+        self.Urgent.setValue(urgent)
+        self.Important.setValue(important)
         self._edges = set()
-        self._publish(self)
-        NODES.add(self)
-
-    def addListener(self, listener):
-        self._listeners.add(listener)
-        listener.onNodeUpdate(self)
 
     def setUrgent(self, urgentp, sender):
-        self._urgentp = urgentp
-        self._publish(sender)
+        self.Urgent.setValue(urgentp, sender)
 
     def urgent(self):
-        return self._urgentp
+        return self.Urgent.value()
 
-    def setImportant(self, importantp, sender):
-        self._importantp = importantp
-        self._publish(sender)
+    def setImportant(self, importantp, sender=None):
+        self.Important.setValue(importantp, sender if sender else self)
 
     def important(self):
-        return self._importantp
+        return self.Important.getValue()
 
     def id(self):
         return self._id
 
-    def setId(self, id, sender):
-        self._id = id
-        self._publish(sender)
-
     def title(self):
-        return self._title
+        return self.Title.value()
 
-    def setTitle(self, title, sender):
-        self._title = title
-        self._publish(sender)
-
-#    def onEdgeUpdate(self, updater):
-#            if edge is not updater:
-
-    def _publish(self, sender):
-        for listener in self._listeners:
-            if listener != sender:
-                listener.onNodeUpdate(self)
+    def setTitle(self, title, sender=None):
+        return self.Title.setValue(title, sender if sender else self)
 
     def __hash__(self):
-        return (hash(self._title) ^
-                hash(self._id) ^
-                hash(self._urgentp) ^
-                hash(self._importantp))
+        return (hash(self.Title) ^
+#                hash(self._id) ^
+                hash(self.Urgent) ^
+                hash(self.Important))
 
     def __str__(self):
-        rval = "Node({0}, {1}, {2}".format(repr(self._title),
-                                           repr(self._urgentp),
-                                           repr(self._importantp))
-        if self._listeners:
-            rval += ", "
-        for listener in self._listeners:
-            rval += repr(listener)
-        rval += ")"
-        return rval
+        return "Node({0}, {1}, {2})".format(repr(self.Title),
+                                            repr(self.Urgent),
+                                            repr(self.Important))
 
-class NodeTableModel(QtCore.QAbstractTableModel):
+
+class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
     def __init__(self):
         super().__init__()
         self._nodes = []
 
     def addNode(self, node):
         self._nodes.append(node)
-        node.addListener(self)
+        self.connect(node)
 
     def onNodeUpdate(self, node):
         #self.emit(QtCore.SIGNAL("dataChanged"))
@@ -464,36 +364,56 @@ class NodeTableModel(QtCore.QAbstractTableModel):
         field = { 0: "setTitle", 1: "setUrgent", 2: "setImportant" }[index.column()]
         node.__dict__[field](node, value)
 
-class GraphicalNode(QtWidgets.QGraphicsItemGroup):
-    def __init__(self):
-        super().__init__()
+class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
+    X        = Number
+    Y        = Number
+    Selected = Boolean
+    Text     = Text
+    
+    def __init__(self, title=""):
+        QtWidgets.QGraphicsItemGroup.__init__(self)
+        Connectable.__init__(self)
+        FieldSet.__init__(self)
+
         self._ellipse = QtWidgets.QGraphicsEllipseItem(0, 0, 100, 100)
         self.addToGroup(self._ellipse)
-        self._text = QtWidgets.QGraphicsSimpleTextItem("")
+        self._text = QtWidgets.QGraphicsSimpleTextItem(title)
+        self._text.setPos(25, 25)
         self.addToGroup(self._text)
-        self._selected = False
+        self.Selected.setValue(False)
         self._dx = 0
         self._dy = 0
         self._id = 0
 
-    def onNodeUpdate(self, node):
-        self._id = node.id()
-        self._text.setText(node.title())
+    def x(self):
+        return self.X.value()
+
+    def y(self):
+        return self.Y.value()
+
+    def setText(self, text):
+        self.Text.setValue(text)
+        self._text.setText(text)
 
     def mousePressEvent(self, event):
-        self._selected = True
+        self.Selected.setValue(True)
         mouse = event.scenePos()
         pos = self.scenePos()
         self._dx = mouse.x() - pos.x()
         self._dy = mouse.y() - pos.y()
 
     def mouseReleaseEvent(self, event):
-        self._selected = False
+        mouse = event.scenePos()
+        self.Selected.setValue(False)
+        self.X.setValue(mouse.x() - self._dx)
+        self.Y.setValue(mouse.y() - self._dy)
 
     def mouseMoveEvent(self, event):
         mouse = event.scenePos()
         newpos = QtCore.QPointF(mouse.x() - self._dx, mouse.y() - self._dy)
         self.setPos(newpos)
+        self.X.setValue(newpos.x())
+        self.Y.setValue(newpos.y())
 
 class GraphicalNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
@@ -510,34 +430,9 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
-    def mousePressEvent(self, event):
-        # self._selected = True
-        # mouse = event.pos()
-        # self._dx = mouse.x()
-        # self._dy = mouse.y()
-        #for node in self._nodes:
-        #    title = node.title()
-        #    node.setTitle(title[-1] + title[0:-1])
-        for listener in self._listeners:
-            listener.onClick(event)
-
-    def addClickListener(self, listener):
-        self._listeners.append(listener)
-
-    # def mouseReleaseEvent(self, event):
-    #     self._selected = False
-        
-    # def mouseMoveEvent(self, event):
-    #     if not self._selected:
-    #         return
-    #     mouse = event.pos()
-    #     #newpos = QtCore.QPointF(mouse.x() - self._dx, mouse.y() - self._dy)
-    #     rect = self.sceneRect()
-    #     x = -(mouse.x() - self._dx)
-    #     y = (mouse.y() - self._dy)
-    #     w = rect.width()
-    #     h = rect.height()
-    #     self.setSceneRect(x, y, w, h)
+#    def mousePressEvent(self, event):
+#        for listener in self._listeners:
+#            listener.onClick(event)
 
 # task1 = Task("write todo app")
 # task2 = Task("do dishes")
@@ -569,13 +464,13 @@ class GraphicalNodeScene(QtWidgets.QGraphicsScene):
     def addNode(self, node):
         self._nodes.append(node)
         gnode = GraphicalNode()
-        node.addListener(gnode)
+        node.connect(gnode)
         self.addItem(gnode)
 
-    def onClick(self, event):
-        for node in self._nodes:
-            title = node.title()
-            node.setTitle(title[-1] + title[0:-1], self)
+#    def onClick(self, event):
+#        for node in self._nodes:
+#            title = node.title()
+#            node.setTitle(title[-1] + title[0:-1])
 
 class NodeSet(object):
     def __init__(self):
@@ -607,37 +502,89 @@ class MainWindow(QtWidgets.QMainWindow):
         self._scene.setSceneRect(0, 0, 500, 500)
 
         # create and add a node to the scene
-        self._node = Node("abc")
-        print(self._node)
-        self._scene.addNode(self._node)
-        #self._node = GraphicalNode("hello")
-        #self._scene.addItem(self._node)
+        self._node1 = Node("jesse")
+        self._gnode1 = GraphicalNode("jesse")
+        self._node1.connect(self._gnode1)
+        self._scene.addItem(self._gnode1)
+        
+        self._node2 = Node("alyssa")
+        self._gnode2 = GraphicalNode("alyssa")
+        self._node2.connect(self._gnode2)
+        self._scene.addItem(self._gnode2)
+        
+        self._edge = GraphicalEdge(self._gnode1, self._gnode2)
+        self._gnode1.connect(self._edge)
+        self._gnode2.connect(self._edge)
+        self._scene.addItem(self._edge)
 
         # add the scene to the view
         #self._view = QtWidgets.QGraphicsView(self._scene)
         self._view = GraphicalNodeView(self._scene)
-        self._view.addClickListener(self._scene)
+        #self._view.addClickListener(self._scene)
 
         # make the view the main widget of the window
         self.setCentralWidget(self._view)
 
         # add a dock with a list
-        self._dock = QtWidgets.QDockWidget("Task Browserr")
-        self._table = QtWidgets.QTableView(self._dock)
-        self._model = NodeTableModel()
-        self._model.addNode(self._node)
-        self._table.setModel(self._model)
-        self._table.resizeRowsToContents()
+        #self._dock = QtWidgets.QDockWidget("Task Browser")
+        #self._table = QtWidgets.QTableView(self._dock)
+        #self._model = NodeTableModel()
+        #self._model.addNode(self._node)
+        #self._table.setModel(self._model)
+        #self._table.resizeRowsToContents()
         #self._model.dataChanged.connect(self._table.update)
         #self._list = QtWidgets.QListWidget(self._dock)
         #lines = ['a', 'b', 'c']
         #self._list.addItems(lines)
-        self._dock.setWidget(self._table)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
+        #self._dock.setWidget(self._table)
+        #self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
         self.setWindowTitle(title)
     
-#app = QtWidgets.QApplication(sys.argv)
-#win = MainWindow("To-Done")
-#win.show()
-#app.exec_()
+@update(Node, "Title", GraphicalNode)
+def node_title_updated_for_graphical_node(node, gnode):
+    gnode.setText(node.title())
+
+@update(GraphicalNode, "X", Node)
+def graphical_node_x_changed(gnode, node):
+    node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
+
+@update(GraphicalNode, "Y", Node)
+def graphical_node_y_changed_for_node(gnode, node):
+    node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
+
+@update(GraphicalNode, "X", GraphicalEdge)
+def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
+    if gnode is gedge._source:
+        gedge.X1.setValue(gnode.x())
+        gedge.Y1.setValue(gnode.y())
+        gedge._line.setLine(gedge.X1.value() + 50,
+                            gedge.Y1.value() + 50,
+                            gedge.X2.value() + 50,
+                            gedge.Y2.value() + 50)
+    elif gnode is gedge._dest:
+        gedge.X2.setValue(gnode.x())
+        gedge.Y2.setValue(gnode.y())
+        gedge._line.setLine(gedge.X1.value() + 50,
+                            gedge.Y1.value() + 50,
+                            gedge.X2.value() + 50,
+                            gedge.Y2.value() + 50)
+    else:
+        assert False
+
+@connect(Node, GraphicalNode)
+def node_connects_to_graphical_node(node, gnode):
+    gnode.setText(node.title())
+
+@connect(GraphicalNode, GraphicalEdge)
+def graphical_node_connects_to_graphical_edge(gnode, gedge):
+    pass
+
+@disconnect(GraphicalNode, GraphicalEdge)
+def graphical_node_disconnects_from_graphical_edge(gnode, gedge):
+    pass
+    
+app = QtWidgets.QApplication(sys.argv)
+win = MainWindow("To-Done")
+win.show()
+app.exec_()
