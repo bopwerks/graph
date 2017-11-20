@@ -189,7 +189,7 @@ def update(sender, fieldname, receiver):
         if receiver not in table:
             table[receiver] = set()
         table[receiver].add(action)
-        print(dispatchtab)
+#        print(dispatchtab)
         return action
     return decorate
 
@@ -202,7 +202,7 @@ def connect(sender, receiver):
         if receiver not in table:
             table[receiver] = set()
         table[receiver].add(action)
-        print(dispatchtab)
+#        print(dispatchtab)
         return action
     return decorate
 
@@ -238,18 +238,6 @@ def set_value(fieldset, fieldname, value):
 
 def get_value(fieldset, fieldname):
     return fieldset.__dict__[fieldname].value()
-
-#@update(Person, "Name", GraphicalPerson)
-#def onNameUpdate(person, gperson):
-#    pass
-
-# @update(Person, "Age", GraphicalPerson)
-# def onAgeUpdate(person, gperson):
-#     pass
-
-# @disconnect(Person, GraphicalPerson)
-# def onPersonDisconnect(person, gperson):
-#     pass
 
 class Edge(Connectable, FieldSet):
     Weight = Number
@@ -288,8 +276,6 @@ class Node(Connectable, FieldSet):
 
 #    __node_id = 0
     def __init__(self, title="", urgent=True, important=True):
-#        print("NODE")
-#        print(dir(type(self)))
         Connectable.__init__(self)
         FieldSet.__init__(self)
 #        Node.__node_id += 1
@@ -364,6 +350,8 @@ class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
         field = { 0: "setTitle", 1: "setUrgent", 2: "setImportant" }[index.column()]
         node.__dict__[field](node, value)
 
+selectedNode = None
+
 class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X        = Number
     Y        = Number
@@ -396,17 +384,21 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self._text.setText(text)
 
     def mousePressEvent(self, event):
+        selectedNode = self
         self.Selected.setValue(True)
         mouse = event.scenePos()
         pos = self.scenePos()
         self._dx = mouse.x() - pos.x()
         self._dy = mouse.y() - pos.y()
+        event.accept()
 
     def mouseReleaseEvent(self, event):
+        selectedNode = None
         mouse = event.scenePos()
         self.Selected.setValue(False)
         self.X.setValue(mouse.x() - self._dx)
         self.Y.setValue(mouse.y() - self._dy)
+        event.accept()
 
     def mouseMoveEvent(self, event):
         mouse = event.scenePos()
@@ -414,6 +406,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self.setPos(newpos)
         self.X.setValue(newpos.x())
         self.Y.setValue(newpos.y())
+        event.accept()
 
 class GraphicalNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
@@ -430,32 +423,14 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
-#    def mousePressEvent(self, event):
-#        for listener in self._listeners:
-#            listener.onClick(event)
+    # def mousePressEvent(self, event):
+    #     pos = event.pos()
+    #     selecteditem = self.itemAt(pos.x(), pos.y())
+    #     if selecteditem:
+    #         event.ignore()
+    #         return
+    #     event.accept()
 
-# task1 = Task("write todo app")
-# task2 = Task("do dishes")
-# task3 = Task("study")
-# edge1 = before(task2, task1)
-# edge2 = after(task2, task3)
-# assert edge1 is edge(task1, task2)
-# del edge(task1, task)
-# all_tasks = tasks()
-
-# breadth-first traversal
-# marked = {}
-# frontier = [task1]
-# while frontier:
-#     task = frontier.pop()
-#     if task in  marked:
-#         continue
-#     marked[task] = True
-#     print task
-#     for neighbor in task.neighborsOfType(Task):
-#         if neighbor not in marked:
-#             frontier.insert(0, neighbor)
-    
 class GraphicalNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
         super().__init__()
@@ -467,20 +442,33 @@ class GraphicalNodeScene(QtWidgets.QGraphicsScene):
         node.connect(gnode)
         self.addItem(gnode)
 
+#    def mousePressEvent(self, event):
+#        print("Selected node: {0}".format(selectedNode))
+#        event.ignore()
+
 #    def onClick(self, event):
 #        for node in self._nodes:
 #            title = node.title()
-#            node.setTitle(title[-1] + title[0:-1])
+#            node.setTitle(title[-1] + title[0:-1], self)
 
-class NodeSet(object):
+class NodeSet(Connectable):
+    Size = Number
+    Updated = Boolean
+    
     def __init__(self):
+        Connectable.__init__(self)
         self._nodes = set()
 
     def nodes(self):
-        return set(self._nodes)
+        return list(self._nodes)
 
-    def addNode(self, node):
+    def add(self, node):
         self._nodes.add(node)
+        node.connect(self)
+
+    def remove(self, node):
+        self._nodes.remove(node)
+        node.disconnect(self)
 
 class NodeTableView(QtWidgets.QTableView):
     def __init__(self, parent, model):
@@ -492,6 +480,8 @@ class NodeTableView(QtWidgets.QTableView):
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
+
+        self._nodes = NodeSet()
 
         # set size to 70% of screen
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
@@ -526,7 +516,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self._view)
 
         # add a dock with a list
-        #self._dock = QtWidgets.QDockWidget("Task Browser")
+        self._dock = QtWidgets.QDockWidget("Task Browser")
         #self._table = QtWidgets.QTableView(self._dock)
         #self._model = NodeTableModel()
         #self._model.addNode(self._node)
@@ -534,12 +524,41 @@ class MainWindow(QtWidgets.QMainWindow):
         #self._table.resizeRowsToContents()
         #self._model.dataChanged.connect(self._table.update)
         #self._list = QtWidgets.QListWidget(self._dock)
+        self._nodeset = NodeSet()
+        self._nodeset.add(self._node1)
+        self._nodeset.add(self._node2)
+        self._list = GraphicalNodeList(self._nodeset)
         #lines = ['a', 'b', 'c']
         #self._list.addItems(lines)
-        #self._dock.setWidget(self._table)
-        #self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
+        self._dock.setWidget(self._list)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
         self.setWindowTitle(title)
+
+        self._toolbar = self.addToolBar("Node")
+        print(self._toolbar)
+        self._newIcon = QtGui.QIcon.fromTheme("document-new", QtGui.QIcon(":/images/new.png"))
+        self._newAction = QtWidgets.QAction(self._newIcon, "&New", self)
+        #self._newAction.setText("New")
+        self._newAction.triggered.connect(self.newNode)
+
+        #connect(newAct, &QAction::triggered, this, &MainWindow::newFile);
+        self._toolbar.addAction(self._newAction)
+
+    def newNode(self):
+        node = Node("")
+        gnode = GraphicalNode("")
+        self._nodes.add(node)
+        node.connect(gnode)
+        self._scene.addItem(gnode)
+
+class GraphicalNodeList(QtWidgets.QListWidget, Connectable):
+    def __init__(self, nodeset):
+        QtWidgets.QListWidget.__init__(self)
+        Connectable.__init__(self)
+        self._nodeset = nodeset
+        self.connect(self._nodeset)
+        self.addItems([str(node) for node in self._nodeset.nodes()])
     
 @update(Node, "Title", GraphicalNode)
 def node_title_updated_for_graphical_node(node, gnode):
@@ -556,15 +575,15 @@ def graphical_node_y_changed_for_node(gnode, node):
 @update(GraphicalNode, "X", GraphicalEdge)
 def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
     if gnode is gedge._source:
-        gedge.X1.setValue(gnode.x())
-        gedge.Y1.setValue(gnode.y())
+        gedge.X1.setValue(gnode.x(), gnode)
+        gedge.Y1.setValue(gnode.y(), gnode)
         gedge._line.setLine(gedge.X1.value() + 50,
                             gedge.Y1.value() + 50,
                             gedge.X2.value() + 50,
                             gedge.Y2.value() + 50)
     elif gnode is gedge._dest:
-        gedge.X2.setValue(gnode.x())
-        gedge.Y2.setValue(gnode.y())
+        gedge.X2.setValue(gnode.x(), gnode)
+        gedge.Y2.setValue(gnode.y(), gnode)
         gedge._line.setLine(gedge.X1.value() + 50,
                             gedge.Y1.value() + 50,
                             gedge.X2.value() + 50,
@@ -578,7 +597,22 @@ def node_connects_to_graphical_node(node, gnode):
 
 @connect(GraphicalNode, GraphicalEdge)
 def graphical_node_connects_to_graphical_edge(gnode, gedge):
-    pass
+    if gnode is gedge._source:
+        gedge.X1.setValue(gnode.x(), gnode)
+        gedge.Y1.setValue(gnode.y(), gnode)
+        gedge._line.setLine(gedge.X1.value() + 50,
+                            gedge.Y1.value() + 50,
+                            gedge.X2.value() + 50,
+                            gedge.Y2.value() + 50)
+    elif gnode is gedge._dest:
+        gedge.X2.setValue(gnode.x(), gnode)
+        gedge.Y2.setValue(gnode.y(), gnode)
+        gedge._line.setLine(gedge.X1.value() + 50,
+                            gedge.Y1.value() + 50,
+                            gedge.X2.value() + 50,
+                            gedge.Y2.value() + 50)
+    else:
+        assert False
 
 @disconnect(GraphicalNode, GraphicalEdge)
 def graphical_node_disconnects_from_graphical_edge(gnode, gedge):
@@ -588,3 +622,26 @@ app = QtWidgets.QApplication(sys.argv)
 win = MainWindow("To-Done")
 win.show()
 app.exec_()
+
+# task1 = Task("write todo app")
+# task2 = Task("do dishes")
+# task3 = Task("study")
+# edge1 = before(task2, task1)
+# edge2 = after(task2, task3)
+# assert edge1 is edge(task1, task2)
+# del edge(task1, task)
+# all_tasks = tasks()
+
+# breadth-first traversal
+# marked = {}
+# frontier = [task1]
+# while frontier:
+#     task = frontier.pop()
+#     if task in  marked:
+#         continue
+#     marked[task] = True
+#     print task
+#     for neighbor in task.neighborsOfType(Task):
+#         if neighbor not in marked:
+#             frontier.insert(0, neighbor)
+    
