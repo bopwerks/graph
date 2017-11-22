@@ -273,6 +273,8 @@ class Node(Connectable, FieldSet):
     Title = Text
     Urgent = Boolean
     Important = Boolean
+    Innodes = Number
+    Outnodes = Number
 
 #    __node_id = 0
     def __init__(self, title="", urgent=True, important=True):
@@ -306,6 +308,12 @@ class Node(Connectable, FieldSet):
 
     def setTitle(self, title, sender=None):
         return self.Title.setValue(title, sender if sender else self)
+
+    def innodes(self):
+        return self.Innodes.value()
+
+    def outnodes(self):
+        return self.Outnodes.value()
 
     def __hash__(self):
         return (hash(self.Title) ^
@@ -364,6 +372,12 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         FieldSet.__init__(self)
 
         self._ellipse = QtWidgets.QGraphicsEllipseItem(0, 0, 100, 100)
+        strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        fillbrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        fillbrush.setColor(QtCore.Qt.lightGray)
+        pen = QtGui.QPen(strokebrush, 1)
+        self._ellipse.setPen(pen)
+        self._ellipse.setBrush(fillbrush)
         self.addToGroup(self._ellipse)
         self._text = QtWidgets.QGraphicsSimpleTextItem(title)
         self._text.setPos(25, 25)
@@ -385,6 +399,9 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
 
     def mousePressEvent(self, event):
         selectedNode = self
+        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        pen = QtGui.QPen(brush, 5)
+        self._ellipse.setPen(pen)
         self.Selected.setValue(True)
         mouse = event.scenePos()
         pos = self.scenePos()
@@ -394,6 +411,9 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
 
     def mouseReleaseEvent(self, event):
         selectedNode = None
+        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        pen = QtGui.QPen(brush, 1)
+        self._ellipse.setPen(pen)
         mouse = event.scenePos()
         self.Selected.setValue(False)
         self.X.setValue(mouse.x() - self._dx)
@@ -595,6 +615,42 @@ def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
 def node_connects_to_graphical_node(node, gnode):
     gnode.setText(node.title())
 
+@connect(Node, Edge)
+def node_connects_to_edge(node, edge):
+    if node is edge._source:
+        node.Outnodes.setValue(node.outnodes() + 1)
+    elif node is edge._dest:
+        node.Innodes.setValue(node.innodes() + 1)
+    else:
+        assert False
+
+@connect(Edge, Node)
+def edge_connects_to_node(edge, node):
+    if node is edge._source:
+        node.Outnodes.setValue(node.outnodes() + 1)
+    elif node is edge._dest:
+        node.Innodes.setValue(node.innodes() + 1)
+    else:
+        assert False
+
+@disconnect(Node, Edge)
+def node_disconnects_from_edge(node, edge):
+    if node is edge._source:
+        node.Outnodes.setValue(node.outnodes() - 1)
+    elif node is edge._dest:
+        node.Innodes.setValue(node.innodes() - 1)
+    else:
+        assert False
+
+@disconnect(Edge, Node)
+def edge_disconnects_from_node(edge, node):
+    if node is edge._source:
+        node.Outnodes.setValue(node.outnodes() - 1)
+    elif node is edge._dest:
+        node.Innodes.setValue(node.innodes() - 1)
+    else:
+        assert False
+
 @connect(GraphicalNode, GraphicalEdge)
 def graphical_node_connects_to_graphical_edge(gnode, gedge):
     if gnode is gedge._source:
@@ -644,4 +700,4 @@ app.exec_()
 #     for neighbor in task.neighborsOfType(Task):
 #         if neighbor not in marked:
 #             frontier.insert(0, neighbor)
-    
+
