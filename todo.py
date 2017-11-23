@@ -5,6 +5,7 @@ from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
 class Connectable(object):
+    """Connectable notifies another Connectable when it has connected or disconnected."""
     def __init__(self):
         self._connections = set()
         
@@ -33,6 +34,11 @@ class Connectable(object):
         self._connections.clear()
 
 class Field(object):
+    """Field holds a value and is a member of a field group.
+
+    Field notifies all registered listeners when it changes value.
+
+    """
     def __init__(self, initialValue=None, parent=None, name=""):
         if type(initialValue) == type(self):
             return initialValue
@@ -41,7 +47,7 @@ class Field(object):
         self._name = name
 
     def _satisfiesConstraint(self, value):
-        return True
+        raise NotImplementedError("Field is an abstract class which lacks a constraint")
 
     def setValue(self, value, sender=None):
         if not self._satisfiesConstraint(value):
@@ -252,22 +258,45 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X2 = Number
     Y2 = Number
     
-    def __init__(self, source, dest):
+    def __init__(self, source=None, dest=None):
         QtWidgets.QGraphicsItemGroup.__init__(self)
         Connectable.__init__(self)
         FieldSet.__init__(self)
         self._source = source
         self._dest = dest
-        self.X1.setValue(self._source.x())
-        self.Y1.setValue(self._source.y())
-        self.X2.setValue(self._dest.x())
-        self.Y2.setValue(self._dest.y())
-        self._line = QtWidgets.QGraphicsLineItem(self._source.x(),
-                                                 self._source.y(),
-                                                 self._dest.x(),
-                                                 self._dest.y())
+        self.X1.setValue(self._source.x() if source else 0)
+        self.Y1.setValue(self._source.y() if source else 0)
+        self.X2.setValue(self._dest.x() if dest else 0)
+        self.Y2.setValue(self._dest.y() if dest else 0)
+        self._line = QtWidgets.QGraphicsLineItem(self._source.x() if source else 0,
+                                                 self._source.y() if source else 0,
+                                                 self._dest.x() if dest else 0,
+                                                 self._dest.y() if dest else 0)
         self.addToGroup(self._line)
 
+    def source(self):
+        return (self.X1.value(), self.Y1.value())
+
+    def dest(self):
+        return (self.X2.value(), self.Y2.value())
+
+    def setDest(self, x2, y2):
+        self.X2.setValue(x2)
+        self.Y2.setValue(y2)
+        self._line.setLine(self.X1.value(),
+                           self.Y1.value(),
+                           self.X2.value(),
+                           self.Y2.value())
+
+    def setLine(self, x1, y1, x2, y2):
+        self.X1.setValue(x1)
+        self.Y1.setValue(y1)
+        self.X2.setValue(x2)
+        self.Y2.setValue(y2)
+        self._line.setLine(self.X1.value(),
+                           self.Y1.value(),
+                           self.X2.value(),
+                           self.Y2.value())
 
 class Node(Connectable, FieldSet):
     Title = Text
@@ -359,6 +388,7 @@ class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
         node.__dict__[field](node, value)
 
 selectedNode = None
+newedge = None
 
 class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X        = Number
@@ -398,41 +428,85 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self._text.setText(text)
 
     def mousePressEvent(self, event):
-        selectedNode = self
-        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 5)
-        self._ellipse.setPen(pen)
-        self.Selected.setValue(True)
-        mouse = event.scenePos()
+        scene = event.scenePos()
+        mouse = event.pos()
         pos = self.scenePos()
-        self._dx = mouse.x() - pos.x()
-        self._dy = mouse.y() - pos.y()
-        event.accept()
+        print("Child at ({4}, {5}) got mouse press at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
+        button = event.button()
+        if button == QtCore.Qt.RightButton:
+            print("Right button activated")
+            global newedge
+            newedge = GraphicalEdge(self)
+            newedge.setLine(pos.x() + 50,
+                            pos.y() + 50,
+                            scene.x(),
+                            scene.y())
+            newedge.connect(self)
+            self.scene().addItem(newedge)
+#            event.ignore() # have scene handle event
+        elif button == QtCore.Qt.LeftButton:
+            print("Left button activated")
+            global selectedNode
+            selectedNode = self
+            brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+            pen = QtGui.QPen(brush, 5)
+            self._ellipse.setPen(pen)
+            self.Selected.setValue(True)
+            self._dx = scene.x() - pos.x()
+            self._dy = scene.y() - pos.y()
+            print("DX = {0} DY = {1}".format(self._dx, self._dy))
+#            event.ignore()
 
     def mouseReleaseEvent(self, event):
+        scene = event.scenePos()
+        mouse = event.pos()
+        print("Child got mouse release at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y()))
+        global newedge
+        global selectedNode
+        if newedge:
+            newedge.disconnect(self)
+            self.scene().removeItem(newedge)
+            newedge = None
+            return
+        # if newedge and newedge._source != self:
+        #     newedge.setDest(self)
+        #     newedge.connect(self)
+        #     newedge = None
+        #     print("Returning")
+        #     return
         selectedNode = None
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         pen = QtGui.QPen(brush, 1)
         self._ellipse.setPen(pen)
-        mouse = event.scenePos()
         self.Selected.setValue(False)
-        self.X.setValue(mouse.x() - self._dx)
-        self.Y.setValue(mouse.y() - self._dy)
-        event.accept()
+        self.X.setValue(scene.x() - self._dx)
+        self.Y.setValue(scene.y() - self._dy)
 
     def mouseMoveEvent(self, event):
-        mouse = event.scenePos()
-        newpos = QtCore.QPointF(mouse.x() - self._dx, mouse.y() - self._dy)
-        self.setPos(newpos)
-        self.X.setValue(newpos.x())
-        self.Y.setValue(newpos.y())
-        event.accept()
+        scene = event.scenePos()
+        mouse = event.pos()
+        pos = self.scenePos()
+        print("Child at ({4}, {5})  got mouse move at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
+        global newedge
+        if newedge:
+            print("Moving edge")
+            newedge.setDest(scene.x(),
+                            scene.y())
+            #newedge.setDest(scene.x() - self._dx, scene.y() - self._dy)
+        else:
+            newpos = QtCore.QPointF(scene.x() - self._dx, scene.y() - self._dy)
+            self.setPos(newpos)
+            self.X.setValue(newpos.x())
+            self.Y.setValue(newpos.y())
 
 class GraphicalNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
         self._selected = False
         self._listeners = []
+        #self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        self._dx = 0
+        self._dy = 0
 
     def wheelEvent(self, event):
         point = event.angleDelta()
@@ -444,12 +518,52 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
             self.scale(1/1.1, 1/1.1)
 
     # def mousePressEvent(self, event):
-    #     pos = event.pos()
-    #     selecteditem = self.itemAt(pos.x(), pos.y())
-    #     if selecteditem:
-    #         event.ignore()
-    #         return
-    #     event.accept()
+    #     mouse = event.pos()
+    #     print("Scene got mouse press at ({0}, {1})".format(mouse.x(), mouse.y()))
+    #     if selectedNode:
+    #         self._dx = mouse.x() - selectedNode.x()
+    #         self._dy = mouse.y() - selectedNode.y()
+
+    # def mouseMoveEvent(self, event):
+    #     mouse = event.pos()
+    #     print("Scene got mouse move at ({0}, {1})".format(mouse.x(), mouse.y()))
+    #     global selectedNode
+    #     global newedge
+    #     if newedge:
+    #         assert selectedNode
+    #         newedge.setLine(newedge._source.x(),
+    #                         newedge._source.y(),
+    #                         mouse.x(),
+    #                         mouse.y())
+    #     elif selectedNode:
+    #         mouse = event.pos()
+    #         newpos = QtCore.QPointF(mouse.x() - self._dx,
+    #                                 mouse.y() - self._dy)
+    #         selectedNode.setPos(newpos)
+    #         selectedNode.X.setValue(newpos.x())
+    #         selectedNode.Y.setValue(newpos.y())
+
+    # def mouseReleaseEvent(self, event):
+    #     mouse = event.pos()
+    #     print("Scene got mouse release at ({0}, {1})".format(mouse.x(), mouse.y()))
+    #     global newedge
+    #     global selectedNode
+    #     if newedge:
+    #         assert selectedNode
+    #         newedge.disconnect(selectedNode)
+    #         self.removeItem(newedge)
+    #     elif selectedNode:
+    #         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+    #         pen = QtGui.QPen(brush, 1)
+    #         selectedNode._ellipse.setPen(pen)
+    #         mouse = event.pos()
+    #         selectedNode.Selected.setValue(False)
+    #         selectedNode.X.setValue(mouse.x() - selectedNode._dx)
+    #         selectedNode.Y.setValue(mouse.y() - selectedNode._dy)
+    #         selectedNode = None
+    #         self._dx = 0
+    #         self._dy = 0
+            
 
 class GraphicalNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
@@ -580,6 +694,9 @@ class GraphicalNodeList(QtWidgets.QListWidget, Connectable):
         self.connect(self._nodeset)
         self.addItems([str(node) for node in self._nodeset.nodes()])
     
+
+############
+
 @update(Node, "Title", GraphicalNode)
 def node_title_updated_for_graphical_node(node, gnode):
     gnode.setText(node.title())
