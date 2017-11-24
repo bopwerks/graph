@@ -298,23 +298,31 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         pen = QtGui.QPen(arrowstroke2, 5)
         self._arrow2.setPen(pen)
         
-        self._updateLines()
         self.addToGroup(self._line)
         self.addToGroup(self._arrow1)
         self.addToGroup(self._arrow2)
+        self._updateLines()
 
     def _updateLines(self):
-        x1 = self.X1.value()
-        y1 = self.Y1.value()
-        x2 = self.X2.value()
-        y2 = self.Y2.value()
-        self._line.setLine(x1, y1, x2, y2)
+        assert self._source
+        
+        x1 = self._source.x() + 50
+        y1 = self._source.y() + 50
+            
+        if self._dest:
+            x2 = self._dest.x() + 50
+            y2 = self._dest.y() + 50
+        else:
+            x2 = self.X2.value()
+            y2 = self.Y2.value()
+
         dx = x2 - x1
-        dy = y2 - y1 # qt reverses y coordinates
+        dy = y2 - y1
         length = math.sqrt(dx**2 + dy**2)
         if length == 0:
             # TODO: hide arrows?
             return
+        dr = (length - 50)/length
         
         cos = dx / length
         sin = dy / length
@@ -326,24 +334,36 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             if dy >= 0:
                 theta = acos # quadrant I
             else:
-                theta = asin # quadrant IV
+                theta = asin + 2*math.pi # quadrant IV
         else:
             if dy >= 0:
                 theta = acos # quadrant II
             else:
                 theta = math.pi - asin # quadrant III
-            
-        atheta = math.pi + theta - alpha
-        btheta = math.pi + theta + alpha
+
+        x1 += 50 * math.cos(theta)
+        y1 += 50 * math.sin(theta)
+        self.X1.setValue(x1)
+        self.Y1.setValue(y1)
+        if self._dest:
+            x2 += 50 * math.cos(theta + math.pi)
+            y2 += 50 * math.sin(theta + math.pi)
+        self.X2.setValue(x2)
+        self.Y2.setValue(y2)
+        self._line.setLine(x1, y1, x2, y2)
         
+
         global message
         message.setText("dx = {0} dy = {1} r = {2} theta = {5} asin = {3} acos= {4}".format(dx, dy, length, asin, acos, theta))
+        atheta = math.pi + theta - alpha
         ax = x2 + self._radius * math.cos(atheta)
         ay = y2 + self._radius * math.sin(atheta)
         self._arrow1.setLine(x2, y2, ax, ay)
+        btheta = math.pi + theta + alpha
         bx = x2 + self._radius * math.cos(btheta)
         by = y2 + self._radius * math.sin(btheta)
         self._arrow2.setLine(x2, y2, bx, by)
+#        self._line.setLine(x1, y1, x2*dr, y2*dr)
 
     def source(self):
         return (self.X1.value(), self.Y1.value())
