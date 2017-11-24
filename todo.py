@@ -287,15 +287,15 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         
         arrowstroke1 = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        arrowstroke1.setColor(QtCore.Qt.blue)
+        arrowstroke1.setColor(QtCore.Qt.black)
 
         arrowstroke2 = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        arrowstroke2.setColor(QtCore.Qt.red)
+        arrowstroke2.setColor(QtCore.Qt.black)
         
-        pen = QtGui.QPen(arrowstroke1, 5)
+        pen = QtGui.QPen(arrowstroke1, 2)
         self._arrow1.setPen(pen)
 
-        pen = QtGui.QPen(arrowstroke2, 5)
+        pen = QtGui.QPen(arrowstroke2, 2)
         self._arrow2.setPen(pen)
         
         self.addToGroup(self._line)
@@ -495,7 +495,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         fillbrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         fillbrush.setColor(QtCore.Qt.lightGray)
-        pen = QtGui.QPen(strokebrush, 1)
+        pen = QtGui.QPen(strokebrush, 2)
         self._ellipse.setPen(pen)
         self._ellipse.setBrush(fillbrush)
         self.addToGroup(self._ellipse)
@@ -539,7 +539,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             global newedge
             assert not newedge
 #            print("Right button activated")
-            newedge = GraphicalEdge(self, alpha=math.pi/4, radius=30)
+            newedge = GraphicalEdge(self, alpha=math.pi/6, radius=20)
             newedge.setLine(pos.x() + 50,
                             pos.y() + 50,
                             scene.x(),
@@ -750,7 +750,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._node2.connect(self._gnode2)
         self._scene.addItem(self._gnode2)
         
-        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/4, radius=30)
+        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/6, radius=20)
         self._gnode1.connect(self._edge)
         self._gnode2.connect(self._edge)
         self._scene.addItem(self._edge)
