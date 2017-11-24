@@ -1,4 +1,5 @@
 # todo.py -- A todo list program.
+import math
 import sys
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
@@ -252,27 +253,116 @@ class Edge(Connectable, FieldSet):
         Connectable.__init__(self)
         FieldSet.__init__(self)
 
+def sign(n):
+    return -1 if n < 0 else 1
+
 class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X1 = Number
     Y1 = Number
     X2 = Number
     Y2 = Number
     
-    def __init__(self, source=None, dest=None):
+    def __init__(self, source=None, dest=None, radius=0, alpha=0):
         QtWidgets.QGraphicsItemGroup.__init__(self)
         Connectable.__init__(self)
         FieldSet.__init__(self)
         self._source = source
         self._dest = dest
+        self._radius = radius
+        self._alpha = alpha
         self.X1.setValue(self._source.x() if source else 0)
         self.Y1.setValue(self._source.y() if source else 0)
         self.X2.setValue(self._dest.x() if dest else 0)
         self.Y2.setValue(self._dest.y() if dest else 0)
-        self._line = QtWidgets.QGraphicsLineItem(self._source.x() if source else 0,
-                                                 self._source.y() if source else 0,
-                                                 self._dest.x() if dest else 0,
-                                                 self._dest.y() if dest else 0)
+        # self._line = QtWidgets.QGraphicsLineItem(self._source.x() if source else 0,
+        #                                          self._source.y() if source else 0,
+        #                                          self._dest.x() if dest else 0,
+        #                                          self._dest.y() if dest else 0)
+        self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
+        # self._arrow1 = QtWidgets.QGraphicsLineItem(self._dest.x() if dest else 0,
+        #                                            self._dest.y() if dest else 0,
+        #                                            )
+        self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
+        self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
+        
+        arrowstroke1 = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        arrowstroke1.setColor(QtCore.Qt.blue)
+
+        arrowstroke2 = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        arrowstroke2.setColor(QtCore.Qt.red)
+        
+        pen = QtGui.QPen(arrowstroke1, 5)
+        self._arrow1.setPen(pen)
+
+        pen = QtGui.QPen(arrowstroke2, 5)
+        self._arrow2.setPen(pen)
+        
+        self._updateLines()
         self.addToGroup(self._line)
+        self.addToGroup(self._arrow1)
+        self.addToGroup(self._arrow2)
+
+    def _updateLines(self):
+        x1 = self.X1.value()
+        y1 = self.Y1.value()
+        x2 = self.X2.value()
+        y2 = self.Y2.value()
+        self._line.setLine(x1, y1, x2, y2)
+        dx = x2 - x1
+        dy = y2 - y1 # qt reverses y coordinates
+        length = math.sqrt(dx**2 + dy**2)
+        if length == 0:
+            print("Length is zero!")
+            # TODO: hide arrows
+            return
+        # cos(theta) = (u dot v) / |u||v|
+        cos = dx / length
+        sin = dy / length
+        acos = math.acos(cos)
+        asin = math.asin(sin)
+        alpha = self._alpha/2
+        #if sign(dx) != sign(dy):
+        #    acos *= -1
+        #    alpha *= -1
+            
+        axtheta = math.pi + acos - alpha
+        aytheta = math.pi + asin - alpha
+        bxtheta = math.pi + acos + alpha
+        bytheta = math.pi + asin + alpha
+
+        if dx >= 0:
+            if dy >= 0:
+                theta = acos # quadrant I
+            else:
+                theta = asin # quadrant IV
+        else:
+            if dy >= 0:
+                theta = acos # quadrant II
+            else:
+                theta = math.pi - asin # quadrant III
+            
+        # axtheta = math.pi + acos - alpha
+        # aytheta = math.pi + asin - alpha
+        # bxtheta = math.pi + acos + alpha
+        # bytheta = math.pi + asin + alpha
+        
+        axtheta = math.pi + theta - alpha
+        aytheta = math.pi + theta - alpha
+        bxtheta = math.pi + theta + alpha
+        bytheta = math.pi + theta + alpha
+        
+        global message
+        message.setText("dx = {0} dy = {1} r = {2} theta = {5} asin = {3} acos= {4}".format(dx, dy, length, asin, acos, theta))
+        ax = x2 + self._radius * math.cos(axtheta)
+        ay = y2 + self._radius * math.sin(aytheta)
+#        ax = x2 + self._radius * math.cos(math.pi + acos + self._alpha/2)
+#        ay = y2 + self._radius * math.sin(math.pi + asin + self._alpha/2)
+        self._arrow1.setLine(x2, y2, ax, ay)
+        bx = x2 + self._radius * math.cos(bxtheta)
+        by = y2 + self._radius * math.sin(bytheta)
+        # bx = x2 + self._radius * math.cos(math.pi + acos - self._alpha/2)
+        # by = y2 + self._radius * math.sin(math.pi + asin - self._alpha/2)
+        self._arrow2.setLine(x2, y2, bx, by)
 
     def source(self):
         return (self.X1.value(), self.Y1.value())
@@ -283,20 +373,14 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     def setDest(self, x2, y2):
         self.X2.setValue(x2)
         self.Y2.setValue(y2)
-        self._line.setLine(self.X1.value(),
-                           self.Y1.value(),
-                           self.X2.value(),
-                           self.Y2.value())
+        self._updateLines()
 
     def setLine(self, x1, y1, x2, y2):
         self.X1.setValue(x1)
         self.Y1.setValue(y1)
         self.X2.setValue(x2)
         self.Y2.setValue(y2)
-        self._line.setLine(self.X1.value(),
-                           self.Y1.value(),
-                           self.X2.value(),
-                           self.Y2.value())
+        self._updateLines()
 
 class Node(Connectable, FieldSet):
     Title = Text
@@ -389,6 +473,7 @@ class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
 
 selectedNode = None
 newedge = None
+message = None
 
 class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X        = Number
@@ -434,9 +519,10 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         print("Child at ({4}, {5}) got mouse press at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
         button = event.button()
         if button == QtCore.Qt.RightButton:
-            print("Right button activated")
             global newedge
-            newedge = GraphicalEdge(self)
+            assert not newedge
+            print("Right button activated")
+            newedge = GraphicalEdge(self, alpha=math.pi/6, radius=50)
             newedge.setLine(pos.x() + 50,
                             pos.y() + 50,
                             scene.x(),
@@ -621,9 +707,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
         # set up scene
+        global message
+        
         #self._scene = QtWidgets.QGraphicsScene()
         self._scene = GraphicalNodeScene()
         self._scene.setSceneRect(0, 0, 500, 500)
+        message = QtWidgets.QGraphicsSimpleTextItem("blah blah blah")
+        message.setPos(-200, -60)
+        self._scene.addItem(message)
 
         # create and add a node to the scene
         self._node1 = Node("jesse")
@@ -636,7 +727,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._node2.connect(self._gnode2)
         self._scene.addItem(self._gnode2)
         
-        self._edge = GraphicalEdge(self._gnode1, self._gnode2)
+        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/6, radius=50)
         self._gnode1.connect(self._edge)
         self._gnode2.connect(self._edge)
         self._scene.addItem(self._edge)
@@ -644,6 +735,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # add the scene to the view
         #self._view = QtWidgets.QGraphicsView(self._scene)
         self._view = GraphicalNodeView(self._scene)
+        self._view.setSceneRect(0, 0, 500, 500)
         #self._view.addClickListener(self._scene)
 
         # make the view the main widget of the window
