@@ -4,6 +4,7 @@ import sys
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
+#from PyQt5 import Qt3DCore
 
 class Connectable(object):
     """Connectable notifies another Connectable when it has connected or disconnected."""
@@ -312,8 +313,7 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         dy = y2 - y1 # qt reverses y coordinates
         length = math.sqrt(dx**2 + dy**2)
         if length == 0:
-            print("Length is zero!")
-            # TODO: hide arrows
+            # TODO: hide arrows?
             return
         
         cos = dx / length
@@ -362,6 +362,10 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self.X2.setValue(x2)
         self.Y2.setValue(y2)
         self._updateLines()
+
+    def setDestNode(self, dest):
+        self._dest = dest
+        self.setDest(dest.x(), dest.y())
 
 class Node(Connectable, FieldSet):
     Title = Text
@@ -452,7 +456,7 @@ class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
         field = { 0: "setTitle", 1: "setUrgent", 2: "setImportant" }[index.column()]
         node.__dict__[field](node, value)
 
-selectedNode = None
+sourceNode = None
 newedge = None
 message = None
 
@@ -507,62 +511,74 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         scene = event.scenePos()
         mouse = event.pos()
         pos = self.scenePos()
-        print("Child at ({4}, {5}) got mouse press at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
+#        print("Child at ({4}, {5}) got mouse press at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
         button = event.button()
+        global sourceNode
+        sourceNode = self
         if button == QtCore.Qt.RightButton:
             global newedge
             assert not newedge
-            print("Right button activated")
+#            print("Right button activated")
             newedge = GraphicalEdge(self, alpha=math.pi/4, radius=30)
             newedge.setLine(pos.x() + 50,
                             pos.y() + 50,
                             scene.x(),
                             scene.y())
-            newedge.connect(self)
+            self.connect(newedge)
             self.scene().addItem(newedge)
 #            event.ignore() # have scene handle event
         elif button == QtCore.Qt.LeftButton:
-            print("Left button activated")
-            global selectedNode
-            selectedNode = self
+#            print("Left button activated")
             self._highlight()
             self.Selected.setValue(True)
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
-            print("DX = {0} DY = {1}".format(self._dx, self._dy))
+#            print("DX = {0} DY = {1}".format(self._dx, self._dy))
 #            event.ignore()
 
     def mouseReleaseEvent(self, event):
         scene = event.scenePos()
         mouse = event.pos()
-        print("Child got mouse release at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y()))
+#        print("Child got mouse release at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y()))
         global newedge
-        global selectedNode
+        global sourceNode
         if newedge:
-            newedge.disconnect(self)
-            self.scene().removeItem(newedge)
+            transform = QtGui.QTransform()
+            nodes = [n for n in self.scene().items(scene) if isinstance(n, GraphicalNode)]
+            destNode = nodes[0] if nodes else None
+            print("{0} at ({1}, {2})".format(destNode if destNode else "nothing",
+                                             scene.x(), scene.y()))
+            if destNode:
+                newedge.setDestNode(destNode)
+                destNode.connect(newedge)
+                print("Connected {0} to {1}".format(sourceNode, destNode))
+            else:
+                newedge.disconnect(self)
+                self.scene().removeItem(newedge)
             newedge = None
-            return
         # if newedge and newedge._source != self:
         #     newedge.setDest(self)
         #     newedge.connect(self)
         #     newedge = None
         #     print("Returning")
         #     return
-        selectedNode = None
+        else:
+            self.Selected.setValue(False)
+            self.X.setValue(scene.x() - self._dx)
+            self.Y.setValue(scene.y() - self._dy)
+        sourceNode = None
         self._unhighlight()
-        self.Selected.setValue(False)
-        self.X.setValue(scene.x() - self._dx)
-        self.Y.setValue(scene.y() - self._dy)
 
     def mouseMoveEvent(self, event):
         scene = event.scenePos()
         mouse = event.pos()
         pos = self.scenePos()
-        print("Child at ({4}, {5})  got mouse move at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
+
+        global destNode
+        
+        #print("Child at ({4}, {5})  got mouse move at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
         global newedge
         if newedge:
-            print("Moving edge")
             newedge.setDest(scene.x(),
                             scene.y())
             #newedge.setDest(scene.x() - self._dx, scene.y() - self._dy)
@@ -593,47 +609,47 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
     # def mousePressEvent(self, event):
     #     mouse = event.pos()
     #     print("Scene got mouse press at ({0}, {1})".format(mouse.x(), mouse.y()))
-    #     if selectedNode:
-    #         self._dx = mouse.x() - selectedNode.x()
-    #         self._dy = mouse.y() - selectedNode.y()
+    #     if sourceNode:
+    #         self._dx = mouse.x() - sourceNode.x()
+    #         self._dy = mouse.y() - sourceNode.y()
 
     # def mouseMoveEvent(self, event):
     #     mouse = event.pos()
     #     print("Scene got mouse move at ({0}, {1})".format(mouse.x(), mouse.y()))
-    #     global selectedNode
+    #     global sourceNode
     #     global newedge
     #     if newedge:
-    #         assert selectedNode
+    #         assert sourceNode
     #         newedge.setLine(newedge._source.x(),
     #                         newedge._source.y(),
     #                         mouse.x(),
     #                         mouse.y())
-    #     elif selectedNode:
+    #     elif sourceNode:
     #         mouse = event.pos()
     #         newpos = QtCore.QPointF(mouse.x() - self._dx,
     #                                 mouse.y() - self._dy)
-    #         selectedNode.setPos(newpos)
-    #         selectedNode.X.setValue(newpos.x())
-    #         selectedNode.Y.setValue(newpos.y())
+    #         sourceNode.setPos(newpos)
+    #         sourceNode.X.setValue(newpos.x())
+    #         sourceNode.Y.setValue(newpos.y())
 
     # def mouseReleaseEvent(self, event):
     #     mouse = event.pos()
     #     print("Scene got mouse release at ({0}, {1})".format(mouse.x(), mouse.y()))
     #     global newedge
-    #     global selectedNode
+    #     global sourceNode
     #     if newedge:
-    #         assert selectedNode
-    #         newedge.disconnect(selectedNode)
+    #         assert sourceNode
+    #         newedge.disconnect(sourceNode)
     #         self.removeItem(newedge)
-    #     elif selectedNode:
+    #     elif sourceNode:
     #         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
     #         pen = QtGui.QPen(brush, 1)
-    #         selectedNode._ellipse.setPen(pen)
+    #         sourceNode._ellipse.setPen(pen)
     #         mouse = event.pos()
-    #         selectedNode.Selected.setValue(False)
-    #         selectedNode.X.setValue(mouse.x() - selectedNode._dx)
-    #         selectedNode.Y.setValue(mouse.y() - selectedNode._dy)
-    #         selectedNode = None
+    #         sourceNode.Selected.setValue(False)
+    #         sourceNode.X.setValue(mouse.x() - sourceNode._dx)
+    #         sourceNode.Y.setValue(mouse.y() - sourceNode._dy)
+    #         sourceNode = None
     #         self._dx = 0
     #         self._dy = 0
             
@@ -650,7 +666,7 @@ class GraphicalNodeScene(QtWidgets.QGraphicsScene):
         self.addItem(gnode)
 
 #    def mousePressEvent(self, event):
-#        print("Selected node: {0}".format(selectedNode))
+#        print("Selected node: {0}".format(sourceNode))
 #        event.ignore()
 
 #    def onClick(self, event):
@@ -793,17 +809,11 @@ def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
     if gnode is gedge._source:
         gedge.X1.setValue(gnode.x(), gnode)
         gedge.Y1.setValue(gnode.y(), gnode)
-        gedge._line.setLine(gedge.X1.value() + 50,
-                            gedge.Y1.value() + 50,
-                            gedge.X2.value() + 50,
-                            gedge.Y2.value() + 50)
+        gedge._updateLines()
     elif gnode is gedge._dest:
         gedge.X2.setValue(gnode.x(), gnode)
         gedge.Y2.setValue(gnode.y(), gnode)
-        gedge._line.setLine(gedge.X1.value() + 50,
-                            gedge.Y1.value() + 50,
-                            gedge.X2.value() + 50,
-                            gedge.Y2.value() + 50)
+        gedge._updateLines()
     else:
         assert False
 
@@ -852,17 +862,11 @@ def graphical_node_connects_to_graphical_edge(gnode, gedge):
     if gnode is gedge._source:
         gedge.X1.setValue(gnode.x(), gnode)
         gedge.Y1.setValue(gnode.y(), gnode)
-        gedge._line.setLine(gedge.X1.value() + 50,
-                            gedge.Y1.value() + 50,
-                            gedge.X2.value() + 50,
-                            gedge.Y2.value() + 50)
+        gedge._updateLines()
     elif gnode is gedge._dest:
         gedge.X2.setValue(gnode.x(), gnode)
         gedge.Y2.setValue(gnode.y(), gnode)
-        gedge._line.setLine(gedge.X1.value() + 50,
-                            gedge.Y1.value() + 50,
-                            gedge.X2.value() + 50,
-                            gedge.Y2.value() + 50)
+        gedge._updateLines()
     else:
         assert False
 
