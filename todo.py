@@ -315,20 +315,12 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             print("Length is zero!")
             # TODO: hide arrows
             return
-        # cos(theta) = (u dot v) / |u||v|
+        
         cos = dx / length
         sin = dy / length
         acos = math.acos(cos)
         asin = math.asin(sin)
         alpha = self._alpha/2
-        #if sign(dx) != sign(dy):
-        #    acos *= -1
-        #    alpha *= -1
-            
-        axtheta = math.pi + acos - alpha
-        aytheta = math.pi + asin - alpha
-        bxtheta = math.pi + acos + alpha
-        bytheta = math.pi + asin + alpha
 
         if dx >= 0:
             if dy >= 0:
@@ -341,27 +333,16 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             else:
                 theta = math.pi - asin # quadrant III
             
-        # axtheta = math.pi + acos - alpha
-        # aytheta = math.pi + asin - alpha
-        # bxtheta = math.pi + acos + alpha
-        # bytheta = math.pi + asin + alpha
-        
-        axtheta = math.pi + theta - alpha
-        aytheta = math.pi + theta - alpha
-        bxtheta = math.pi + theta + alpha
-        bytheta = math.pi + theta + alpha
+        atheta = math.pi + theta - alpha
+        btheta = math.pi + theta + alpha
         
         global message
         message.setText("dx = {0} dy = {1} r = {2} theta = {5} asin = {3} acos= {4}".format(dx, dy, length, asin, acos, theta))
-        ax = x2 + self._radius * math.cos(axtheta)
-        ay = y2 + self._radius * math.sin(aytheta)
-#        ax = x2 + self._radius * math.cos(math.pi + acos + self._alpha/2)
-#        ay = y2 + self._radius * math.sin(math.pi + asin + self._alpha/2)
+        ax = x2 + self._radius * math.cos(atheta)
+        ay = y2 + self._radius * math.sin(atheta)
         self._arrow1.setLine(x2, y2, ax, ay)
-        bx = x2 + self._radius * math.cos(bxtheta)
-        by = y2 + self._radius * math.sin(bytheta)
-        # bx = x2 + self._radius * math.cos(math.pi + acos - self._alpha/2)
-        # by = y2 + self._radius * math.sin(math.pi + asin - self._alpha/2)
+        bx = x2 + self._radius * math.cos(btheta)
+        by = y2 + self._radius * math.sin(btheta)
         self._arrow2.setLine(x2, y2, bx, by)
 
     def source(self):
@@ -512,6 +493,16 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         self.Text.setValue(text)
         self._text.setText(text)
 
+    def _highlight(self):
+        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        pen = QtGui.QPen(brush, 5)
+        self._ellipse.setPen(pen)
+
+    def _unhighlight(self):
+        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        pen = QtGui.QPen(brush, 1)
+        self._ellipse.setPen(pen)
+        
     def mousePressEvent(self, event):
         scene = event.scenePos()
         mouse = event.pos()
@@ -522,7 +513,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             global newedge
             assert not newedge
             print("Right button activated")
-            newedge = GraphicalEdge(self, alpha=math.pi/6, radius=50)
+            newedge = GraphicalEdge(self, alpha=math.pi/4, radius=30)
             newedge.setLine(pos.x() + 50,
                             pos.y() + 50,
                             scene.x(),
@@ -534,9 +525,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             print("Left button activated")
             global selectedNode
             selectedNode = self
-            brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-            pen = QtGui.QPen(brush, 5)
-            self._ellipse.setPen(pen)
+            self._highlight()
             self.Selected.setValue(True)
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
@@ -561,9 +550,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         #     print("Returning")
         #     return
         selectedNode = None
-        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 1)
-        self._ellipse.setPen(pen)
+        self._unhighlight()
         self.Selected.setValue(False)
         self.X.setValue(scene.x() - self._dx)
         self.Y.setValue(scene.y() - self._dy)
@@ -727,7 +714,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._node2.connect(self._gnode2)
         self._scene.addItem(self._gnode2)
         
-        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/6, radius=50)
+        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/4, radius=30)
         self._gnode1.connect(self._edge)
         self._gnode2.connect(self._edge)
         self._scene.addItem(self._edge)
