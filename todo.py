@@ -482,6 +482,34 @@ message = None
 editor = None
 movedp = False
 toggledp = False
+scene = None
+
+nodeid = 0
+nodes = {} # maps node IDs to Node objects
+gnodes = {} # maps node IDs to GraphicalNode objects
+
+def nodeFromGraphicalNode(gnode):
+    return nodes[gnode.id]
+
+def makeNode(title="", isurgent=False, isimportant=False):
+    """Adds a node to the graph and displays it on the canvas."""
+    global nodeid
+    nodeid += 1
+    
+    node = Node(title, isurgent, isimportant)
+    node.id = nodeid
+    nodes[node.id] = node
+
+    gnode = GraphicalNode(title)
+    gnode.id = nodeid
+    gnodes[node.id] = gnode
+
+    gnode.connect(node)
+
+    # TODO: select the graphical node
+
+    global scene
+    scene.addItem(gnode)
 
 class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X        = Number
@@ -516,8 +544,8 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     def y(self):
         return self.Y.value()
 
-    def setText(self, text):
-        self.Text.setValue(text)
+    def setTitle(self, text, sender):
+        self.Text.setValue(text, sender)
         self._text.setText(text)
 
     def _highlight(self):
@@ -582,12 +610,16 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
             self._unhighlight()
         elif not toggledp:
             # update editor
-            self.connect(editor)
+            node = nodeFromGraphicalNode(self)
+            print("Connecting editor to {0}".format(node))
+            node.connect(editor)
             toggledp = True
         else:
             toggledp = False
             self._unhighlight()
-            self.disconnect(editor)
+            node = nodeFromGraphicalNode(self)
+            print("Disconnecting editor from {0}".format(node))
+            self.disconnect(node)
         movedp = False
 
     def mouseMoveEvent(self, event):
@@ -688,33 +720,16 @@ class MainWindow(QtWidgets.QMainWindow):
         global message
         
         #self._scene = QtWidgets.QGraphicsScene()
-        self._scene = GraphicalNodeScene()
-        self._scene.setSceneRect(0, 0, 500, 500)
+        global scene
+        scene = GraphicalNodeScene()
+        scene.setSceneRect(0, 0, 500, 500)
         message = QtWidgets.QGraphicsSimpleTextItem("blah blah blah")
         message.setPos(-200, -60)
-        self._scene.addItem(message)
-
-        # create and add a node to the scene
-        self._node1 = Node("jesse")
-        self._gnode1 = GraphicalNode("jesse")
-        self._node1.connect(self._gnode1)
-        self._scene.addItem(self._gnode1)
-        
-        self._node2 = Node("alyssa")
-        self._gnode2 = GraphicalNode("alyssa")
-        self._node2.connect(self._gnode2)
-        self._scene.addItem(self._gnode2)
-        
-        self._edge = GraphicalEdge(self._gnode1, self._gnode2, alpha=math.pi/6, radius=20)
-        self._gnode1.connect(self._edge)
-        self._gnode2.connect(self._edge)
-        self._scene.addItem(self._edge)
+        scene.addItem(message)
 
         # add the scene to the view
-        #self._view = QtWidgets.QGraphicsView(self._scene)
-        self._view = GraphicalNodeView(self._scene)
+        self._view = GraphicalNodeView(scene)
         self._view.setSceneRect(0, 0, 500, 500)
-        #self._view.addClickListener(self._scene)
 
         # make the view the main widget of the window
         self.setCentralWidget(self._view)
@@ -728,9 +743,9 @@ class MainWindow(QtWidgets.QMainWindow):
         #self._table.resizeRowsToContents()
         #self._model.dataChanged.connect(self._table.update)
         #self._list = QtWidgets.QListWidget(self._dock)
-        self._nodeset = NodeSet()
-        self._nodeset.add(self._node1)
-        self._nodeset.add(self._node2)
+        # self._nodeset = NodeSet()
+        # self._nodeset.add(self._node1)
+        # self._nodeset.add(self._node2)
         #self._list = GraphicalNodeList(self._nodeset)
         global editor
         editor = NodeEditor()
@@ -752,11 +767,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._toolbar.addAction(self._newAction)
 
     def newNode(self):
-        node = Node("")
-        gnode = GraphicalNode("")
-        self._nodes.add(node)
-        node.connect(gnode)
-        self._scene.addItem(gnode)
+        makeNode()
+        # node = Node("")
+        # gnode = GraphicalNode("")
+        # self._nodes.add(node)
+        # node.connect(gnode)
+        # self._scene.addItem(gnode)
 
 class GraphicalNodeList(QtWidgets.QListWidget, Connectable):
     def __init__(self, nodeset):
@@ -796,27 +812,61 @@ class NodeEditor(QtWidgets.QFrame, FieldSet, Connectable):
         self.setLayout(self._layout)
 
     def onTitleChange(self):
-        self.Title.setValue(self._title.toPlainText())
+        self.Title.setValue(self._title.toPlainText(), self)
 
     def onUrgentChange(self, state):
-        self.Urgent.setValue(bool(state))
+        self.Urgent.setValue(bool(state), self)
 
     def onImptChange(self, state):
-        self.Important.setValue(bool(state))
+        self.Important.setValue(bool(state), self)
+
+    def setTitle(self, title, sender):
+        self._title.setText(title)
+        self.Title.setValue(title, sender)
+
+    def title(self):
+        return self.Title.value()
+
+    def setUrgent(self, urgentp, sender):
+        self.Urgent.setValue(urgentp, sender)
+        checkedp = QtCore.Qt.Checked if self.Urgent.value() else QtCore.Qt.Unchecked
+        self._urgent.setCheckState(checkedp)
+
+    def setImportant(self, urgentp, sender):
+        self.Important.setValue(urgentp, sender)
+        checkedp = QtCore.Qt.Checked if self.Important.value() else QtCore.Qt.Unchecked
+        self._impt.setCheckState(checkedp)
 
 ############
 
 @update(Node, "Title", GraphicalNode)
 def node_title_updated_for_graphical_node(node, gnode):
-    gnode.setText(node.title())
+    print("Updating graphical node title to {0}".format(node.title()))
+    print("{0} {1}".format(type(node), type(gnode)))
+    gnode.setTitle(node.title(), node)
 
-@update(GraphicalNode, "X", Node)
-def graphical_node_x_changed(gnode, node):
-    node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
+@connect(NodeEditor, Node)
+def node_editor_connected_to_node(editor, node):
+    editor.setTitle(node.title(), node)
+    editor.setUrgent(node.urgent(), node)
+    editor.setImportant(node.important(), node)
 
-@update(GraphicalNode, "Y", Node)
-def graphical_node_y_changed_for_node(gnode, node):
-    node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
+@update(NodeEditor, "Title", GraphicalNode)
+def node_editor_updates_graphical_node(editor, gnode):
+    gnode.setTitle(editor.title(), editor)
+
+@update(NodeEditor, "Title", Node)
+def node_editor_change_title(editor, node):
+    print("Setting node title to {0}".format(editor.title()))
+    node.setTitle(editor.title(), editor)
+
+# @update(GraphicalNode, "X", Node)
+# def graphical_node_x_changed(gnode, node):
+#     node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
+
+# @update(GraphicalNode, "Y", Node)
+# def graphical_node_y_changed_for_node(gnode, node):
+#     node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
 
 @update(GraphicalNode, "X", GraphicalEdge)
 def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
@@ -831,9 +881,15 @@ def graphical_node_x_changed_for_graphical_edge(gnode, gedge):
     else:
         assert False
 
+#@update(Node, "Title", GraphicalNode)
+#def node_title_updated_to_graphical_node(node, gnode):
+#    print("Updating graphical node title to {0}".format(node.title()))
+#    print("{0} {1}".format(type(node), type(gnode)))
+#    gnode.setText(node.title())
+
 @connect(Node, GraphicalNode)
 def node_connects_to_graphical_node(node, gnode):
-    gnode.setText(node.title())
+    gnode.setTitle(node.title(), node)
 
 @connect(Node, Edge)
 def node_connects_to_edge(node, edge):
