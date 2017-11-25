@@ -479,6 +479,9 @@ class NodeTableModel(QtCore.QAbstractTableModel, Connectable):
 sourceNode = None
 newedge = None
 message = None
+editor = None
+movedp = False
+toggledp = False
 
 class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
     X        = Number
@@ -519,7 +522,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
 
     def _highlight(self):
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 5)
+        pen = QtGui.QPen(brush, 4)
         self._ellipse.setPen(pen)
 
     def _unhighlight(self):
@@ -531,14 +534,12 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         scene = event.scenePos()
         mouse = event.pos()
         pos = self.scenePos()
-#        print("Child at ({4}, {5}) got mouse press at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
+
         button = event.button()
         global sourceNode
-        sourceNode = self
         if button == QtCore.Qt.RightButton:
             global newedge
             assert not newedge
-#            print("Right button activated")
             newedge = GraphicalEdge(self, alpha=math.pi/6, radius=20)
             newedge.setLine(pos.x() + 50,
                             pos.y() + 50,
@@ -546,48 +547,48 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
                             scene.y())
             self.connect(newedge)
             self.scene().addItem(newedge)
-#            event.ignore() # have scene handle event
+            sourceNode = self
         elif button == QtCore.Qt.LeftButton:
-#            print("Left button activated")
             self._highlight()
             self.Selected.setValue(True)
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
-#            print("DX = {0} DY = {1}".format(self._dx, self._dy))
-#            event.ignore()
 
     def mouseReleaseEvent(self, event):
         scene = event.scenePos()
         mouse = event.pos()
-#        print("Child got mouse release at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y()))
         global newedge
         global sourceNode
+        global movedp
+        global editor
+        global toggledp
+        
         if newedge:
             transform = QtGui.QTransform()
             nodes = [n for n in self.scene().items(scene) if isinstance(n, GraphicalNode)]
             destNode = nodes[0] if nodes else None
-            print("{0} at ({1}, {2})".format(destNode if destNode else "nothing",
-                                             scene.x(), scene.y()))
             if destNode:
                 newedge.setDestNode(destNode)
                 destNode.connect(newedge)
-                print("Connected {0} to {1}".format(sourceNode, destNode))
             else:
                 newedge.disconnect(self)
                 self.scene().removeItem(newedge)
             newedge = None
-        # if newedge and newedge._source != self:
-        #     newedge.setDest(self)
-        #     newedge.connect(self)
-        #     newedge = None
-        #     print("Returning")
-        #     return
-        else:
+        elif movedp:
             self.Selected.setValue(False)
             self.X.setValue(scene.x() - self._dx)
             self.Y.setValue(scene.y() - self._dy)
-        sourceNode = None
-        self._unhighlight()
+            sourceNode = None
+            self._unhighlight()
+        elif not toggledp:
+            # update editor
+            self.connect(editor)
+            toggledp = True
+        else:
+            toggledp = False
+            self._unhighlight()
+            self.disconnect(editor)
+        movedp = False
 
     def mouseMoveEvent(self, event):
         scene = event.scenePos()
@@ -595,12 +596,14 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, Connectable, FieldSet):
         pos = self.scenePos()
 
         global destNode
+        global movedp
+
+        movedp = True
         
         #print("Child at ({4}, {5})  got mouse move at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
         global newedge
         if newedge:
-            newedge.setDest(scene.x(),
-                            scene.y())
+            newedge.setDest(scene.x(), scene.y())
             #newedge.setDest(scene.x() - self._dx, scene.y() - self._dy)
         else:
             newpos = QtCore.QPointF(scene.x() - self._dx, scene.y() - self._dy)
@@ -625,54 +628,6 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
             self.scale(1.1, 1.1)
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
-
-    # def mousePressEvent(self, event):
-    #     mouse = event.pos()
-    #     print("Scene got mouse press at ({0}, {1})".format(mouse.x(), mouse.y()))
-    #     if sourceNode:
-    #         self._dx = mouse.x() - sourceNode.x()
-    #         self._dy = mouse.y() - sourceNode.y()
-
-    # def mouseMoveEvent(self, event):
-    #     mouse = event.pos()
-    #     print("Scene got mouse move at ({0}, {1})".format(mouse.x(), mouse.y()))
-    #     global sourceNode
-    #     global newedge
-    #     if newedge:
-    #         assert sourceNode
-    #         newedge.setLine(newedge._source.x(),
-    #                         newedge._source.y(),
-    #                         mouse.x(),
-    #                         mouse.y())
-    #     elif sourceNode:
-    #         mouse = event.pos()
-    #         newpos = QtCore.QPointF(mouse.x() - self._dx,
-    #                                 mouse.y() - self._dy)
-    #         sourceNode.setPos(newpos)
-    #         sourceNode.X.setValue(newpos.x())
-    #         sourceNode.Y.setValue(newpos.y())
-
-    # def mouseReleaseEvent(self, event):
-    #     mouse = event.pos()
-    #     print("Scene got mouse release at ({0}, {1})".format(mouse.x(), mouse.y()))
-    #     global newedge
-    #     global sourceNode
-    #     if newedge:
-    #         assert sourceNode
-    #         newedge.disconnect(sourceNode)
-    #         self.removeItem(newedge)
-    #     elif sourceNode:
-    #         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-    #         pen = QtGui.QPen(brush, 1)
-    #         sourceNode._ellipse.setPen(pen)
-    #         mouse = event.pos()
-    #         sourceNode.Selected.setValue(False)
-    #         sourceNode.X.setValue(mouse.x() - sourceNode._dx)
-    #         sourceNode.Y.setValue(mouse.y() - sourceNode._dy)
-    #         sourceNode = None
-    #         self._dx = 0
-    #         self._dy = 0
-            
 
 class GraphicalNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
@@ -776,10 +731,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._nodeset = NodeSet()
         self._nodeset.add(self._node1)
         self._nodeset.add(self._node2)
-        self._list = GraphicalNodeList(self._nodeset)
+        #self._list = GraphicalNodeList(self._nodeset)
+        global editor
+        editor = NodeEditor()
         #lines = ['a', 'b', 'c']
         #self._list.addItems(lines)
-        self._dock.setWidget(self._list)
+        self._dock.setWidget(editor)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
         self.setWindowTitle(title)
@@ -809,6 +766,43 @@ class GraphicalNodeList(QtWidgets.QListWidget, Connectable):
         self.connect(self._nodeset)
         self.addItems([str(node) for node in self._nodeset.nodes()])
     
+class NodeEditor(QtWidgets.QFrame, FieldSet, Connectable):
+    Title = Text
+    Urgent = Boolean
+    Important = Boolean
+    
+    def __init__(self):
+        QtWidgets.QFrame.__init__(self)
+        FieldSet.__init__(self)
+        Connectable.__init__(self)
+        self._layout = QtWidgets.QFormLayout()
+        
+        self._title = QtWidgets.QTextEdit()
+        self._title.textChanged.connect(self.onTitleChange)
+        self._layout.addRow("&Title", self._title)
+        
+        self._urgent = QtWidgets.QCheckBox()
+        self._urgent.stateChanged.connect(self.onUrgentChange)
+        checkedp = QtCore.Qt.Checked if self.Urgent.value() else QtCore.Qt.Unchecked
+        self._urgent.setCheckState(checkedp)
+        self._layout.addRow("&Urgent", self._urgent)
+
+        self._impt = QtWidgets.QCheckBox()
+        self._impt.stateChanged.connect(self.onImptChange)
+        checkedp = QtCore.Qt.Checked if self.Urgent.value() else QtCore.Qt.Unchecked
+        self._impt.setCheckState(checkedp)
+        self._layout.addRow("&Important", self._impt)
+
+        self.setLayout(self._layout)
+
+    def onTitleChange(self):
+        self.Title.setValue(self._title.toPlainText())
+
+    def onUrgentChange(self, state):
+        self.Urgent.setValue(bool(state))
+
+    def onImptChange(self, state):
+        self.Important.setValue(bool(state))
 
 ############
 
@@ -893,7 +887,7 @@ def graphical_node_connects_to_graphical_edge(gnode, gedge):
 @disconnect(GraphicalNode, GraphicalEdge)
 def graphical_node_disconnects_from_graphical_edge(gnode, gedge):
     pass
-    
+
 app = QtWidgets.QApplication(sys.argv)
 win = MainWindow("To-Done")
 win.show()
