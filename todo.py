@@ -7,26 +7,6 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
-# class Type(Field):
-#     def __init__(self, parent, name):
-#         Field.__init__(self, name="Type", parent=parent)
-
-#     def parent(self):
-#         return self._parent
-
-# Type = makeType("Type", None)
-# Node = makeType("Node",
-#                 Type,
-#                 "Name", Text,
-#                 "X", Number,
-#                 "Y", Number,
-#                 "Color", Color)
-
-# TodoNode = makeType("TodoNode",
-#                     Node,
-#                     "Urgent", Boolean,
-#                     "Important", Boolean)
-
 class Field(object):
     """Field holds a value and is a member of a field group.
 
@@ -42,7 +22,8 @@ class Field(object):
         self.__connections = set()
 
     def _satisfiesConstraint(self, value):
-        raise NotImplementedError("Field is an abstract class which lacks a constraint")
+        return True
+#        raise NotImplementedError("Field is an abstract class which lacks a constraint")
 
     def setValue(self, value, sender=None):
 #        print("{0}'s {1} was set by {2}".format(self._parent, self._name, sender))
@@ -57,11 +38,8 @@ class Field(object):
         return self._value
 
     def connectField(self, connectable):
-#        print("Called {0}::connectField({1})".format(self, connectable))
         self.__connections.add(connectable)
-#        print("{0}::connections = {1}".format(self, self.__connections))
         connectable.__connections.add(self)
-#        print("{0}::connections = {1}".format(connectable, connectable.__connections))
         dispatch(self, connectable, "connect")
 
     def disconnectField(self, connectable):
@@ -103,13 +81,6 @@ class Field(object):
                 #                                                  receiver,
                 #                                                  name))
                 dispatch(self, receiver, name)
-#        print("Finished publishing!")
-
-    # def __str__(self):
-    #     return "Field(initialValue={0})".format(repr(self._value))
-
-    # def __repr__(self):
-    #     return str(self)
 
     def __hash__(self):
         return hash(self._value)
@@ -188,15 +159,12 @@ class FieldGroup(Field):
 
     def _fields(self):
         fields = []
-#        print(type(self))
-#        print(dir(type(self)))
         for fieldname in dir(type(self)):
             if fieldname.startswith("_"):
                 continue
             T = self.__getType(fieldname)
             if not T or type(T) != type:
                 continue
-#            print(T)
             if not issubclass(T, Field):
                 continue
             fields.append(fieldname)
@@ -207,19 +175,14 @@ class FieldGroup(Field):
             return None
         return type(self).__dict__[fieldname]
 
-    # def __str__(self):
-    #     rval = "<{0}".format(self.__class__.__name__)
-    #     for name in self._fields():
-    #         type = self.__getType(name)
-    #         rval += " {0}={1}".format(name, type.__name__)
-    #     rval += ">"
-    #     return rval
+class Environment(FieldGroup):
+    selectedNode = Field
+    
+    def __init__(self, parent=None, name=""):
+        FieldGroup.__init__(self, parent, name)
 
-class MessageType(object):
-    CONNECT    = 1
-    DISCONNECT = 2
-    UPDATE     = 3
 
+env = Environment(None, "Environment")
 dispatchtab = {}
 
 def insert(sender, receiver, message, action):
@@ -271,9 +234,6 @@ def dispatch(sender, receiver, message):
     for action in A:
 #        print("Executing action {0}".format(action))
         action(sender, receiver)
-    # if message:
-    #     for action in actions(type(sender), type(receiver), ""):
-    #         action(sender, receiver)
 
 def set_value(fieldset, fieldname, value):
     assert isinstance(fieldset, FieldGroup)
@@ -310,14 +270,7 @@ class GraphicalEdge(QtWidgets.QGraphicsItemGroup, FieldGroup):
         self.Y1.setValue(self._source.y() if source else 0)
         self.X2.setValue(self._dest.x() if dest else 0)
         self.Y2.setValue(self._dest.y() if dest else 0)
-        # self._line = QtWidgets.QGraphicsLineItem(self._source.x() if source else 0,
-        #                                          self._source.y() if source else 0,
-        #                                          self._dest.x() if dest else 0,
-        #                                          self._dest.y() if dest else 0)
         self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        # self._arrow1 = QtWidgets.QGraphicsLineItem(self._dest.x() if dest else 0,
-        #                                            self._dest.y() if dest else 0,
-        #                                            )
         self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         
@@ -429,11 +382,8 @@ class Node(FieldGroup):
     Innodes = Number
     Outnodes = Number
 
-#    __node_id = 0
     def __init__(self, title="", urgent=True, important=True):
         FieldGroup.__init__(self, None)
-#        Node.__node_id += 1
-#        self._id = Node.__node_id
         
         self.Title.setValue(title)
         self.Urgent.setValue(urgent, None)
@@ -451,7 +401,7 @@ class Node(FieldGroup):
         self.Important.setValue(importantp, sender if sender else self)
 
     def important(self):
-        return self.Important.getValue()
+        return self.Important.value()
 
     def id(self):
         return self._id
@@ -470,15 +420,8 @@ class Node(FieldGroup):
 
     def __hash__(self):
         return (hash(self.Title) ^
-#                hash(self._id) ^
                 hash(self.Urgent) ^
                 hash(self.Important))
-
-    # def __str__(self):
-    #     return "Node({0}, {1}, {2})".format(repr(self.Title),
-    #                                         repr(self.Urgent),
-    #                                         repr(self.Important))
-
 
 class NodeTableModel(QtCore.QAbstractTableModel):
     def __init__(self):
@@ -490,7 +433,6 @@ class NodeTableModel(QtCore.QAbstractTableModel):
         self.connectField(node)
 
     def onNodeUpdate(self, node):
-        #self.emit(QtCore.SIGNAL("dataChanged"))
         topleft = self.createIndex(0, 0)
         btmright = self.createIndex(2, len(self._nodes))
         self.dataChanged.emit(topleft, btmright)
@@ -525,6 +467,9 @@ gnodes = {} # maps node IDs to GraphicalNode objects
 
 def nodeFromGraphicalNode(gnode):
     return nodes[gnode.id]
+
+def graphicalNodeFromNode(node):
+    return gnodes[node.id]
 
 def makeNode(title="", isurgent=False, isimportant=False):
     """Adds a node to the graph and displays it on the canvas."""
@@ -571,6 +516,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, FieldGroup):
         self._dx = 0
         self._dy = 0
         self._id = 0
+        self._movedp = False
 
     def x(self):
         return self.X.value()
@@ -609,10 +555,18 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, FieldGroup):
                             scene.y())
             self.connectField(newedge)
             self.scene().addItem(newedge)
-            sourceNode = self
         elif button == QtCore.Qt.LeftButton:
-            self._highlight()
-            self.Selected.setValue(True, None)
+            global env
+            selectedNode = env.selectedNode.value()
+            if selectedNode is not self:
+                if selectedNode:
+                    gnode = graphicalNodeFromNode(selectedNode)
+                    gnode._unhighlight()
+                    editor.disconnectField(selectedNode)
+                self._highlight()
+#                node = nodeFromGraphicalNode(self)
+#                env.selectedNode.setValue(node)
+#            self._highlight()
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
 
@@ -620,10 +574,9 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, FieldGroup):
         scene = event.scenePos()
         mouse = event.pos()
         global newedge
-        global sourceNode
-        global movedp
-        global editor
         global toggledp
+        global env
+        global editor
         
         if newedge:
             transform = QtGui.QTransform()
@@ -636,25 +589,27 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, FieldGroup):
                 newedge.disconnectField(self)
                 self.scene().removeItem(newedge)
             newedge = None
-        elif movedp:
-            self.Selected.setValue(False)
+        elif not self._movedp:
+            node = nodeFromGraphicalNode(self)
+            if env.selectedNode.value() is node:
+                editor.disconnectField(node)
+                env.selectedNode.setValue(None)
+                self._unhighlight()
+            else:
+                env.selectedNode.setValue(nodeFromGraphicalNode(self))
+                self._highlight()
+        else:
             self.X.setValue(scene.x() - self._dx, None)
             self.Y.setValue(scene.y() - self._dy, None)
-            sourceNode = None
-            self._unhighlight()
-        elif not toggledp:
-            # update editor
             node = nodeFromGraphicalNode(self)
-#            print("Connecting editor to {0}".format(node))
-            node.connectField(editor)
-            toggledp = True
-        else:
-            toggledp = False
-            self._unhighlight()
-            node = nodeFromGraphicalNode(self)
+            env.selectedNode.setValue(node)
+            editor.connectField(node)
+            
+#            self._unhighlight()
+#            node = nodeFromGraphicalNode(self)
 #            print("Disconnecting editor from {0}".format(node))
-            self.disconnectField(node)
-        movedp = False
+#            self.disconnectField(node)
+        self._movedp = False
 
     def mouseMoveEvent(self, event):
         scene = event.scenePos()
@@ -662,9 +617,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup, FieldGroup):
         pos = self.scenePos()
 
         global destNode
-        global movedp
-
-        movedp = True
+        self._movedp = True
         
         #print("Child at ({4}, {5})  got mouse move at ({0}, {1}), scene ({2}, {3})".format(mouse.x(), mouse.y(), scene.x(), scene.y(), pos.x(), pos.y()))
         global newedge
@@ -682,7 +635,7 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
         super().__init__(scene)
         self._selected = False
         self._listeners = []
-        #self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
         self._dx = 0
         self._dy = 0
 
@@ -705,15 +658,6 @@ class GraphicalNodeScene(QtWidgets.QGraphicsScene):
         gnode = GraphicalNode()
         node.connectField(gnode)
         self.addItem(gnode)
-
-#    def mousePressEvent(self, event):
-#        print("Selected node: {0}".format(sourceNode))
-#        event.ignore()
-
-#    def onClick(self, event):
-#        for node in self._nodes:
-#            title = node.title()
-#            node.setTitle(title[-1] + title[0:-1], self)
 
 class NodeSet(FieldGroup):
     Size = Number
@@ -783,6 +727,8 @@ class MainWindow(QtWidgets.QMainWindow):
         #self._list = GraphicalNodeList(self._nodeset)
         global editor
         editor = NodeEditor()
+        global env
+        env.connectField(editor)
         #lines = ['a', 'b', 'c']
         #self._list.addItems(lines)
         self._dock.setWidget(editor)
@@ -843,6 +789,16 @@ class NodeEditor(QtWidgets.QFrame, FieldGroup):
 
         self.setLayout(self._layout)
 
+    def disable(self):
+        self._title.setDisabled(True)
+        self._urgent.setDisabled(True)
+        self._impt.setDisabled(True)
+
+    def enable(self):
+        self._title.setDisabled(False)
+        self._urgent.setDisabled(False)
+        self._impt.setDisabled(False)
+
     def onTitleChange(self):
         self.Title.setValue(self._title.toPlainText(), self)
 
@@ -894,14 +850,6 @@ def node_editor_change_title(editor, node):
 
 # @update(GraphicalNode, Node)
 # def graphical_node_changed_for_node(gnode, node):
-#     node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
-
-# @update(GraphicalNode, Node, "X")
-# def graphical_node_x_changed(gnode, node):
-#     node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
-
-# @update(GraphicalNode, Node, "Y")
-# def graphical_node_y_changed_for_node(gnode, node):
 #     node.setTitle("({0}, {1})".format(gnode.x(), gnode.y()))
 
 @update(GraphicalNode, GraphicalEdge, "X")
@@ -980,6 +928,28 @@ def graphical_node_connects_to_graphical_edge(gnode, gedge):
 def graphical_node_disconnects_from_graphical_edge(gnode, gedge):
     pass
 
+@connect(Environment, NodeEditor)
+def selected_node_changed(env, editor):
+    node = env.selectedNode.value()
+    if not node:
+        editor.disable()
+        return
+    editor.enable()
+    editor.setTitle(node.title(), env)
+    editor.setUrgent(node.urgent(), env)
+    editor.setImportant(node.important(), env)
+
+@update(Environment, NodeEditor, "selectedNode")
+def selected_node_changed(env, editor):
+    node = env.selectedNode.value()
+    if not node:
+        editor.disable()
+        return
+    editor.enable()
+    editor.setTitle(node.title(), env)
+    editor.setUrgent(node.urgent(), env)
+    editor.setImportant(node.important(), env)
+
 #pp = pprint.PrettyPrinter(indent=4)
 #pp.pprint(dispatchtab)
 
@@ -987,26 +957,3 @@ app = QtWidgets.QApplication(sys.argv)
 win = MainWindow("To-Done")
 win.show()
 app.exec_()
-
-# task1 = Task("write todo app")
-# task2 = Task("do dishes")
-# task3 = Task("study")
-# edge1 = before(task2, task1)
-# edge2 = after(task2, task3)
-# assert edge1 is edge(task1, task2)
-# del edge(task1, task)
-# all_tasks = tasks()
-
-# breadth-first traversal
-# marked = {}
-# frontier = [task1]
-# while frontier:
-#     task = frontier.pop()
-#     if task in  marked:
-#         continue
-#     marked[task] = True
-#     print task
-#     for neighbor in task.neighborsOfType(Task):
-#         if neighbor not in marked:
-#             frontier.insert(0, neighbor)
-
