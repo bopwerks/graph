@@ -10,7 +10,8 @@ from PyQt5 import QtGui
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
-edges = {} # maps node IDs to IDs of neighbors
+outnodes = {} # maps node IDs to IDs of outnodes
+innodes = {} # maps node IDs to IDs of innodes
 
 def nodeFromQNode(gnode):
     return nodes[gnode.id]
@@ -349,10 +350,10 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 
     def mouseReleaseEvent(self, event):
         global newedge
-        global env
         global editor
         global selectedNode
-        global edges
+        global outnodes
+        global innodes
         
         scene = event.scenePos()
         mouse = event.pos()
@@ -368,11 +369,15 @@ class QNode(QtWidgets.QGraphicsItemGroup):
                 dest = nodeFromQNode(destNode)
                 origin.addOutnode()
                 dest.addInnode()
-                if self.id not in edges:
-                    edges[self.id] = set()
-                edges[self.id].add(destNode.id)
+                if self.id not in outnodes:
+                    outnodes[self.id] = set()
+                if destNode.id not in innodes:
+                    innodes[destNode.id] = set()
+                outnodes[self.id].add(destNode.id)
+                innodes[destNode.id].add(self.id)
                 self.scene().addItem(edge)
-                print(edges)
+                print("Outnodes = {0}".format(outnodes))
+                print("Innodes = {0}".format(innodes))
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
@@ -431,7 +436,8 @@ class QNodeView(QtWidgets.QGraphicsView):
     def keyPressEvent(self, event):
         global selectedEdge
         global selectedNode
-        global edges
+        global innodes
+        global outnodes
         
         key = event.key()
         if not selectedEdge and not selectedNode:
@@ -452,8 +458,10 @@ class QNodeView(QtWidgets.QGraphicsView):
             origin.removeOutnode()
             dest.removeInnode()
 
-            edges[origin.id].clear()
-            print(edges)
+            outnodes[origin.id].remove(dest.id)
+            innodes[dest.id].remove(origin.id)
+            print("Outnodes = {0}".format(outnodes))
+            print("Innodes = {0}".format(innodes))
         else:
             assert not selectedEdge
             node = selectedNode
