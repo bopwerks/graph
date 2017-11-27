@@ -547,9 +547,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
         self._toolbar = self.addToolBar("Task")
-        self._newIcon = QtGui.QIcon.fromTheme("document-new", QtGui.QIcon(":/images/new.png"))
+        style = self.style()
+        icon = style.standardIcon(25) # TODO: find where QStyle::SP_FileIcon is in PyQt
+#        self._newIcon = QtGui.QIcon.fromTheme("document-new", QtGui.QIcon(":/icon/quit"))
+        self._newIcon = QtGui.QIcon.fromTheme("document-new", icon)
+#        self._newIcon.setIconVisibleInMenu(True)
         self._newAction = QtWidgets.QAction(self._newIcon, "&New Task", self)
         self._newAction.triggered.connect(self.newNode)
+        self._newAction.setIconVisibleInMenu(True)
         self._toolbar.addAction(self._newAction)
 
     def newNode(self):
