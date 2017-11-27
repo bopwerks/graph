@@ -489,6 +489,9 @@ class QNodeView(QtWidgets.QGraphicsView):
                 innodes[dest.id].remove(origin.id)
                 if not innodes[dest.id]:
                     del innodes[dest.id]
+                outnodes[origin.id].remove(dest.id)
+                if not outnodes[origin.id]:
+                    del outnodes[origin.id]
                 del qedges[(origin.id, dest.id)]
             if node.id in outnodes:
                 del outnodes[node.id]
