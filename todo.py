@@ -10,10 +10,7 @@ from PyQt5 import QtGui
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
-
-edgeid = 0
-edges = {} # maps edge IDs to Edge objects
-qedges = {} # maps edge IDs to QEdge objects
+edges = {} # maps node IDs to IDs of neighbors
 
 def nodeFromQNode(gnode):
     return nodes[gnode.id]
@@ -103,7 +100,6 @@ class QEdge(QArrow):
         self._setArrows()
 
     def _setArrows(self):
-        # TODO: compute edge of nodes for position
         dx = self._dest.x() - self._origin.x()
         dy = self._dest.y() - self._origin.y()
         if not distance(dx, dy):
@@ -212,11 +208,25 @@ class Node(object):
         self._title = title
         self._publish()
 
-    def innodes(self):
-        return self.Innodes.value()
+    def addInnode(self):
+        self._innodes += 1
 
+    def removeInnode(self):
+        self._innodes -= 1
+        assert self._innodes >= 0
+        
+    def innodes(self):
+        return self._innodes
+
+    def addOutnode(self):
+        self._outnodes += 1
+
+    def removeOutnode(self):
+        self._outnodes -= 1
+        assert self._outnodes >= 0
+        
     def outnodes(self):
-        return self.Outnodes.value()
+        return self._outnodes
 
     def __hash__(self):
         return (hash(self._title) ^
@@ -316,10 +326,16 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             global newedge
             assert not newedge
             newedge = QArrow(angle=math.pi/6, radius=20)
-            newedge.setLine(pos.x() + 50,
-                            pos.y() + 50,
-                            scene.x(),
-                            scene.y())
+            x1 = self.pos().x() + 50
+            y1 = self.pos().y() + 50
+            dx = scene.x() - x1
+            dy = scene.y() - y1
+            r = distance(dx, dy)
+            if r:
+                theta = angle(dx, dy)
+                x1 += 50 * math.cos(theta)
+                y1 += 50 * math.sin(theta)
+            newedge.setLine(x1, y1, scene.x(), scene.y())
             self.scene().addItem(newedge)
         elif button == QtCore.Qt.LeftButton:
             editor.setNode(nodeFromQNode(self))
@@ -336,6 +352,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         global env
         global editor
         global selectedNode
+        global edges
         
         scene = event.scenePos()
         mouse = event.pos()
@@ -346,9 +363,16 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             destNode = nodes[0] if nodes else None
             self.scene().removeItem(newedge)
             if destNode and destNode is not self: # hovering over another node
-                # TODO: make an edge
                 edge = QEdge.fromArrow(newedge, self, destNode)
+                origin = nodeFromQNode(self)
+                dest = nodeFromQNode(destNode)
+                origin.addOutnode()
+                dest.addInnode()
+                if self.id not in edges:
+                    edges[self.id] = set()
+                edges[self.id].add(destNode.id)
                 self.scene().addItem(edge)
+                print(edges)
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
@@ -380,7 +404,16 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 
         if newedge:
             line = newedge.line()
-            newedge.setLine(line.x1(), line.y1(), scene.x(), scene.y())
+            x1 = self.pos().x() + 50
+            y1 = self.pos().y() + 50
+            dx = scene.x() - x1
+            dy = scene.y() - y1
+            r = distance(dx, dy)
+            if r:
+                theta = angle(dx, dy)
+                x1 += 50 * math.cos(theta)
+                y1 += 50 * math.sin(theta)
+            newedge.setLine(x1, y1, scene.x(), scene.y())
         else:
             newpos = QtCore.QPointF(scene.x() - self._dx, scene.y() - self._dy)
             self.setPos(newpos)
@@ -397,15 +430,37 @@ class QNodeView(QtWidgets.QGraphicsView):
 
     def keyPressEvent(self, event):
         global selectedEdge
-        key = event.key()
-        if not selectedEdge:
-            return
-        if key == QtCore.Qt.Key_Delete or key == QtCore.Qt.Key_Backspace:
-            self.scene().removeItem(selectedEdge)
-            selectedEdge._origin.removeListener(selectedEdge)
-            selectedEdge._dest.removeListener(selectedEdge)
-            selectedEdge = None
+        global selectedNode
+        global edges
         
+        key = event.key()
+        if not selectedEdge and not selectedNode:
+            return
+        if key != QtCore.Qt.Key_Delete and key != QtCore.Qt.Key_Backspace:
+            return
+
+        if selectedEdge:
+            assert not selectedNode
+            e = selectedEdge
+            selectedEdge = None
+            self.scene().removeItem(e)
+            e._origin.removeListener(e)
+            e._dest.removeListener(e)
+            
+            origin = nodeFromQNode(e._origin)
+            dest = nodeFromQNode(e._dest)
+            origin.removeOutnode()
+            dest.removeInnode()
+
+            edges[origin.id].clear()
+            print(edges)
+        else:
+            assert not selectedEdge
+            node = selectedNode
+            selectedNode = None
+            self.scene().removeItem(node)
+            # TODO: remove all edges entering or leaving this node
+            
     def wheelEvent(self, event):
         point = event.angleDelta()
         dy = point.y()
