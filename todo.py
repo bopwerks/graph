@@ -10,6 +10,7 @@ from PyQt5 import QtGui
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
+qedges = {} # maps origin and destination node IDs to QEdges
 outnodes = {} # maps node IDs to IDs of outnodes
 innodes = {} # maps node IDs to IDs of innodes
 
@@ -375,6 +376,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
                     innodes[destNode.id] = set()
                 outnodes[self.id].add(destNode.id)
                 innodes[destNode.id].add(self.id)
+                qedges[(self.id, destNode.id)] = edge
                 self.scene().addItem(edge)
                 print("Outnodes = {0}".format(outnodes))
                 print("Innodes = {0}".format(innodes))
@@ -438,6 +440,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         global selectedNode
         global innodes
         global outnodes
+        global qedges
         
         key = event.key()
         if not selectedEdge and not selectedNode:
@@ -459,7 +462,12 @@ class QNodeView(QtWidgets.QGraphicsView):
             dest.removeInnode()
 
             outnodes[origin.id].remove(dest.id)
+            if not outnodes[origin.id]:
+                del outnodes[origin.id]
             innodes[dest.id].remove(origin.id)
+            if not innodes[dest.id]:
+                del innodes[dest.id]
+            del qedges[(origin.id, dest.id)]
             print("Outnodes = {0}".format(outnodes))
             print("Innodes = {0}".format(innodes))
         else:
@@ -467,7 +475,27 @@ class QNodeView(QtWidgets.QGraphicsView):
             node = selectedNode
             selectedNode = None
             self.scene().removeItem(node)
-            # TODO: remove all edges entering or leaving this node
+            rmedges = [v for k, v in qedges.items() if k[0] == node.id or k[1] == node.id]
+            for e in rmedges:
+                self.scene().removeItem(e)
+                e._origin.removeListener(e)
+                e._dest.removeListener(e)
+
+                origin = nodeFromQNode(e._origin)
+                dest = nodeFromQNode(e._dest)
+                origin.removeOutnode()
+                dest.removeInnode()
+
+                innodes[dest.id].remove(origin.id)
+                if not innodes[dest.id]:
+                    del innodes[dest.id]
+                del qedges[(origin.id, dest.id)]
+            if node.id in outnodes:
+                del outnodes[node.id]
+            if node.id in innodes:
+                del innodes[node.id]
+            print("Outnodes = {0}".format(outnodes))
+            print("Innodes = {0}".format(innodes))
             
     def wheelEvent(self, event):
         point = event.angleDelta()
@@ -528,6 +556,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._scene.addItem(qnode)
         if selectedNode:
             selectedNode._unhighlight()
+        selectedNode = qnode
+        selectedNode._highlight()
         editor.setNode(node)
 
 def checkstate(val):
