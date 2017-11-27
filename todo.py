@@ -378,8 +378,6 @@ class QNode(QtWidgets.QGraphicsItemGroup):
                 innodes[destNode.id].add(self.id)
                 qedges[(self.id, destNode.id)] = edge
                 self.scene().addItem(edge)
-                print("Outnodes = {0}".format(outnodes))
-                print("Innodes = {0}".format(innodes))
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
