@@ -117,6 +117,18 @@ class QEdge(QArrow):
         y2 = self._dest.y() + 50 - 50 * sin
         self.setLine(x1, y1, x2, y2)
 
+    def _highlight(self):
+        stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        stroke.setColor(QtCore.Qt.black)
+        pen = QtGui.QPen(stroke, 2)
+        self._line.setPen(pen)
+
+    def _unhighlight(self):
+        stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        stroke.setColor(QtCore.Qt.black)
+        pen = QtGui.QPen(stroke, 1)
+        self._line.setPen(pen)
+
     def onNodeUpdate(self, node):
         assert node is self._origin or node is self._dest
         self._setArrows()
@@ -127,6 +139,34 @@ class QEdge(QArrow):
         edge.setLine(line.x1(), line.y1(), line.x2(), line.y2())
         edge._setArrows()
         return edge
+
+    def mousePressEvent(self, event):
+        global selectedEdge
+        global selectedNode
+        global editor
+        
+        button = event.button()
+        mouse = event.pos()
+        pos = self.scenePos()
+        scene = event.scenePos()
+
+        if button != QtCore.Qt.LeftButton:
+            event.ignore()
+            return
+
+        if selectedNode:
+            selectedNode._unhighlight()
+            selectedNode = None
+            editor.setNode(None)
+            
+        if selectedEdge is self:
+            self._unhighlight()
+            selectedEdge = None
+        else:
+            if selectedEdge:
+                selectedEdge._unhighlight()
+            self._highlight()
+            selectedEdge = self
         
 class Node(object):
     def __init__(self, title="", urgent=True, important=True, id=0):
@@ -184,6 +224,7 @@ class Node(object):
                 hash(self._importantp))
 
 selectedNode = None
+selectedEdge = None
 newedge = None
 message = None
 editor = None
@@ -229,6 +270,9 @@ class QNode(QtWidgets.QGraphicsItemGroup):
     def addListener(self, obj):
         self._listeners.add(obj)
 
+    def removeListener(self, obj):
+        self._listeners.remove(obj)
+
     def _publish(self):
         for obj in self._listeners:
             obj.onNodeUpdate(self)
@@ -256,12 +300,17 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         
     def mousePressEvent(self, event):
         global selectedNode
+        global selectedEdge
         global editor
         
         button = event.button()
         mouse = event.pos()
         pos = self.scenePos()
         scene = event.scenePos()
+        
+        if selectedEdge:
+            selectedEdge._unhighlight()
+            selectedEdge = None
         
         if button == QtCore.Qt.RightButton:
             global newedge
@@ -346,10 +395,20 @@ class QNodeView(QtWidgets.QGraphicsView):
         self._dx = 0
         self._dy = 0
 
+    def keyPressEvent(self, event):
+        global selectedEdge
+        key = event.key()
+        if not selectedEdge:
+            return
+        if key == QtCore.Qt.Key_Delete or key == QtCore.Qt.Key_Backspace:
+            self.scene().removeItem(selectedEdge)
+            selectedEdge._origin.removeListener(selectedEdge)
+            selectedEdge._dest.removeListener(selectedEdge)
+            selectedEdge = None
+        
     def wheelEvent(self, event):
         point = event.angleDelta()
         dy = point.y()
-        #print("({0}, {1})".format(point.x(), point.y()))
         if dy > 0:
             self.scale(1.1, 1.1)
         elif dy < 0:
@@ -370,18 +429,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
 
+        global editor
+        
         # set size to 70% of screen
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
-        # set up scene
-        global message
-        
         self._scene = QNodeScene()
         self._scene.setSceneRect(-500, -500, 500, 500)
-        
-        message = QtWidgets.QGraphicsSimpleTextItem("blah blah blah")
-        message.setPos(-200, -60)
-        self._scene.addItem(message)
 
         # add the scene to the view
         self._view = QNodeView(self._scene)
@@ -390,25 +444,18 @@ class MainWindow(QtWidgets.QMainWindow):
         # make the view the main widget of the window
         self.setCentralWidget(self._view)
 
-        # add a dock with a list
+        # add a dock with a task editor
+        editor = QNodeEditor()
         self._dock = QtWidgets.QDockWidget("Task Editor")
-        global editor
-        self._editor = QNodeEditor()
-        editor = self._editor
-        #lines = ['a', 'b', 'c']
-        #self._list.addItems(lines)
         self._dock.setWidget(editor)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
         self.setWindowTitle(title)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
 
-        self._toolbar = self.addToolBar("Node")
+        self._toolbar = self.addToolBar("Task")
         self._newIcon = QtGui.QIcon.fromTheme("document-new", QtGui.QIcon(":/images/new.png"))
-        self._newAction = QtWidgets.QAction(self._newIcon, "&New", self)
-        #self._newAction.setText("New")
+        self._newAction = QtWidgets.QAction(self._newIcon, "&New Task", self)
         self._newAction.triggered.connect(self.newNode)
-
-        #connect(newAct, &QAction::triggered, this, &MainWindow::newFile);
         self._toolbar.addAction(self._newAction)
 
     def newNode(self):
