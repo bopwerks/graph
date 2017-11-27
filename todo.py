@@ -212,34 +212,66 @@ class Node(object):
 
     def addInnode(self):
         self._innodes += 1
+        self._publish()
 
     def removeInnode(self):
         self._innodes -= 1
         assert self._innodes >= 0
+        self._publish()
         
     def innodes(self):
         return self._innodes
 
     def addOutnode(self):
         self._outnodes += 1
+        self._publish()
 
     def removeOutnode(self):
         self._outnodes -= 1
         assert self._outnodes >= 0
+        self._publish()
         
     def outnodes(self):
         return self._outnodes
-
-    def __hash__(self):
-        return (hash(self._title) ^
-                hash(self._urgentp) ^
-                hash(self._importantp))
 
 selectedNode = None
 selectedEdge = None
 newedge = None
 message = None
 editor = None
+nodelist = None
+
+class QNodeList(QtWidgets.QListWidget):
+    def __init__(self):
+        super().__init__()
+        self._nodes = set()
+
+    def _updateList(self):
+        self.clear()
+        nodes = sorted([n for n in self._nodes if n.innodes() == 0],
+                       key=lambda n: (n.important(), n.urgent()), reverse=True)
+        for node in nodes:
+            self.addItem(node.title())
+#        print("Finished printing set {0}".format(self._nodes))
+
+    def add(self, node):
+        assert node
+        node.addListener(self)
+        self._nodes.add(node)
+        self._updateList()
+#        print(self._nodes)
+
+    def remove(self, node):
+#        print("Removing {0} from set {1}".format(node, self._nodes))
+        assert node
+        assert node in self._nodes
+        node.removeListener(self)
+        self._nodes.remove(node)
+        self._updateList()
+#        print(self._nodes)
+
+    def onNodeUpdate(self, node):
+        self._updateList()
 
 def makeNode(title="", isurgent=False, isimportant=False):
     """Adds a node to the graph and displays it on the canvas."""
@@ -378,6 +410,8 @@ class QNode(QtWidgets.QGraphicsItemGroup):
                 innodes[destNode.id].add(self.id)
                 qedges[(self.id, destNode.id)] = edge
                 self.scene().addItem(edge)
+                # print("Outnodes = {0}".format(outnodes))
+                # print("Innodes = {0}".format(innodes))
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
@@ -439,6 +473,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         global innodes
         global outnodes
         global qedges
+        global nodelist
         
         key = event.key()
         if not selectedEdge and not selectedNode:
@@ -466,8 +501,6 @@ class QNodeView(QtWidgets.QGraphicsView):
             if not innodes[dest.id]:
                 del innodes[dest.id]
             del qedges[(origin.id, dest.id)]
-            print("Outnodes = {0}".format(outnodes))
-            print("Innodes = {0}".format(innodes))
         else:
             assert not selectedEdge
             node = selectedNode
@@ -495,8 +528,10 @@ class QNodeView(QtWidgets.QGraphicsView):
                 del outnodes[node.id]
             if node.id in innodes:
                 del innodes[node.id]
-            print("Outnodes = {0}".format(outnodes))
-            print("Innodes = {0}".format(innodes))
+            nodelist.remove(nodeFromQNode(node))
+                
+        # print("Outnodes = {0}".format(outnodes))
+        # print("Innodes = {0}".format(innodes))
             
     def wheelEvent(self, event):
         point = event.angleDelta()
@@ -522,6 +557,7 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
 
         global editor
+        global nodelist
         
         # set size to 70% of screen
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
@@ -538,11 +574,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add a dock with a task editor
         editor = QNodeEditor()
-        self._dock = QtWidgets.QDockWidget("Task Editor")
-        self._dock.setWidget(editor)
+        self._editor = QtWidgets.QDockWidget("Task Editor")
+        self._editor.setWidget(editor)
+
+        self._list = QtWidgets.QDockWidget("Task List")
+        nodelist = QNodeList()
+        self._list.setWidget(nodelist)
 
         self.setWindowTitle(title)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._dock)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._list)
 
         self._toolbar = self.addToolBar("Task")
         style = self.style()
@@ -556,9 +597,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._toolbar.addAction(self._newAction)
 
     def newNode(self):
+        global nodeset
         global editor
         global selectedNode
+        global nodelist
         node, qnode = makeNode()
+        nodelist.add(node)
         self._scene.addItem(qnode)
         if selectedNode:
             selectedNode._unhighlight()
@@ -622,7 +666,9 @@ class QNodeEditor(QtWidgets.QFrame):
         if self._node:
             self._node.setImportant(bool(state))
 
-app = QtWidgets.QApplication(sys.argv)
-win = MainWindow("To-Done")
-win.show()
-app.exec_()
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    win = MainWindow("To-Done")
+    win.show()
+    app.exec_()
