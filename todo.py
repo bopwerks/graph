@@ -7,15 +7,42 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
+nodeid = 0
+nodes = {} # maps node IDs to Node objects
+qnodes = {} # maps node IDs to QNode objects
+
+edgeid = 0
+edges = {} # maps edge IDs to Edge objects
+qedges = {} # maps edge IDs to QEdge objects
+
+def nodeFromQNode(gnode):
+    return nodes[gnode.id]
+
+def qnodeFromNode(node):
+    return qnodes[node.id]
+
+def distance(x, y):
+    return math.sqrt(x**2 + y**2)
+
+def angle(dx, dy):
+    r = distance(dx, dy)
+    if dx >= 0:
+        if dy >= 0:
+            theta = math.acos(dx/r) # quadrant I
+        else:
+            theta = math.asin(dy/r) + 2*math.pi # quadrant IV
+    else:
+        if dy >= 0:
+            theta = math.acos(dx/r) # quadrant II
+        else:
+            theta = math.pi - math.asin(dy/r) # quadrant III
+    return theta
+
 class QArrow(QtWidgets.QGraphicsItemGroup):
     def __init__(self, radius=0, angle=0, color=QtCore.Qt.black):
         QtWidgets.QGraphicsItemGroup.__init__(self)
         self._radius = radius
         self._angle = angle
-        self._x1 = 0
-        self._y1 = 0
-        self._x2 = 0
-        self._y2 = 0
         self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
@@ -41,38 +68,20 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         x2 = line.x2()
         y2 = line.y2()
 
-        dx = x2 - x1
-        dy = y2 - y1
-        length = math.sqrt(dx**2 + dy**2)
-        if length == 0:
-            # TODO: hide arrows?
-            return
-        
-        cos = dx / length
-        sin = dy / length
-        acos = math.acos(cos)
-        asin = math.asin(sin)
-        angle = self._angle/2
-
-        if dx >= 0:
-            if dy >= 0:
-                theta = acos # quadrant I
-            else:
-                theta = asin + 2*math.pi # quadrant IV
-        else:
-            if dy >= 0:
-                theta = acos # quadrant II
-            else:
-                theta = math.pi - asin # quadrant III
-
         self._line.setLine(x1, y1, x2, y2)
         
-        atheta = math.pi + theta - angle
+        dx = x2 - x1
+        dy = y2 - y1
+        if not distance(dx, dy):
+            return
+        
+        theta = angle(dx, dy)
+        atheta = math.pi + theta - self._angle/2
         ax = x2 + self._radius * math.cos(atheta)
         ay = y2 + self._radius * math.sin(atheta)
         self._arrow1.setLine(x2, y2, ax, ay)
         
-        btheta = math.pi + theta + angle
+        btheta = math.pi + theta + self._angle/2
         bx = x2 + self._radius * math.cos(btheta)
         by = y2 + self._radius * math.sin(btheta)
         self._arrow2.setLine(x2, y2, bx, by)
@@ -84,30 +93,39 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._line.setLine(x1, y1, x2, y2)
         self._updateLines()
 
-class GraphicalEdge(QArrow):
-    def __init__(self, source, dest, radius=0, angle=0):
+class QEdge(QArrow):
+    def __init__(self, origin, dest, radius=0, angle=0):
         QArrow.__init__(self, radius=radius, angle=angle)
-        self._source = source
+        self._origin = origin
         self._dest = dest
-        self._source.addListener(self)
+        self._origin.addListener(self)
         self._dest.addListener(self)
         self._setArrows()
 
     def _setArrows(self):
         # TODO: compute edge of nodes for position
-        self.setLine(self._source.x() + 50,
-                     self._source.y() + 50,
-                     self._dest.x() + 50,
-                     self._dest.y() + 50)
+        dx = self._dest.x() - self._origin.x()
+        dy = self._dest.y() - self._origin.y()
+        if not distance(dx, dy):
+            return
+        theta = angle(dx, dy)
+        cos = math.cos(theta)
+        sin = math.sin(theta)
+        x1 = self._origin.x() + 50 + 50 * cos
+        y1 = self._origin.y() + 50 + 50 * sin
+        x2 = self._dest.x() + 50 - 50 * cos
+        y2 = self._dest.y() + 50 - 50 * sin
+        self.setLine(x1, y1, x2, y2)
 
     def onNodeUpdate(self, node):
-        assert node is self._source or node is self._dest
+        assert node is self._origin or node is self._dest
         self._setArrows()
 
-    def fromArrow(arrow, source, dest):
+    def fromArrow(arrow, origin, dest):
         line = arrow.line()
-        edge = GraphicalEdge(source, dest, radius=arrow._radius, angle=arrow._angle)
+        edge = QEdge(origin, dest, radius=arrow._radius, angle=arrow._angle)
         edge.setLine(line.x1(), line.y1(), line.x2(), line.y2())
+        edge._setArrows()
         return edge
         
 class Node(object):
@@ -169,39 +187,24 @@ selectedNode = None
 newedge = None
 message = None
 editor = None
-movedp = False
-scene = None
-
-nodeid = 0
-nodes = {} # maps node IDs to Node objects
-gnodes = {} # maps node IDs to GraphicalNode objects
-
-def nodeFromGraphicalNode(gnode):
-    return nodes[gnode.id]
-
-def graphicalNodeFromNode(node):
-    return gnodes[node.id]
 
 def makeNode(title="", isurgent=False, isimportant=False):
     """Adds a node to the graph and displays it on the canvas."""
     global nodeid
-    global scene
     nodeid += 1
     
     node = Node(title, isurgent, isimportant)
     node.id = nodeid
     nodes[node.id] = node
 
-    gnode = GraphicalNode(title)
-    gnode.id = nodeid
-    gnodes[node.id] = gnode
+    qnode = QNode(title)
+    qnode.id = nodeid
+    qnodes[node.id] = qnode
 
-    node.addListener(gnode)
+    node.addListener(qnode)
+    return (node, qnode)
 
-    # TODO: select the graphical node
-    scene.addItem(gnode)
-
-class GraphicalNode(QtWidgets.QGraphicsItemGroup):
+class QNode(QtWidgets.QGraphicsItemGroup):
     def __init__(self, title=""):
         QtWidgets.QGraphicsItemGroup.__init__(self)
 
@@ -209,22 +212,19 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup):
         strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         fillbrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         fillbrush.setColor(QtCore.Qt.lightGray)
-        pen = QtGui.QPen(strokebrush, 2)
-        self._ellipse.setPen(pen)
         self._ellipse.setBrush(fillbrush)
+        self._unhighlight()
         self.addToGroup(self._ellipse)
         
         self._text = QtWidgets.QGraphicsSimpleTextItem(title)
         self._text.setPos(25, 25)
         self.addToGroup(self._text)
         
-        self._selectedp = False
         self._dx = 0
         self._dy = 0
-        self._id = 0
         self._movedp = False
-        self.setPos(0, 0)
         self._listeners = set()
+        self.setPos(0, 0)
 
     def addListener(self, obj):
         self._listeners.add(obj)
@@ -246,19 +246,23 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup):
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         pen = QtGui.QPen(brush, 4)
         self._ellipse.setPen(pen)
+        self._highlightedp = True
 
     def _unhighlight(self):
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         pen = QtGui.QPen(brush, 1)
         self._ellipse.setPen(pen)
+        self._highlightedp = False
         
     def mousePressEvent(self, event):
-        scene = event.scenePos()
+        global selectedNode
+        global editor
+        
+        button = event.button()
         mouse = event.pos()
         pos = self.scenePos()
-
-        button = event.button()
-        global selectedNode
+        scene = event.scenePos()
+        
         if button == QtCore.Qt.RightButton:
             global newedge
             assert not newedge
@@ -269,47 +273,51 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup):
                             scene.y())
             self.scene().addItem(newedge)
         elif button == QtCore.Qt.LeftButton:
+            editor.setNode(nodeFromQNode(self))
             if selectedNode is not self:
                 if selectedNode:
-                    gnode = graphicalNodeFromNode(selectedNode)
-                    gnode._unhighlight()
-                    editor.setNode(None)
+                    qnode = qnodeFromNode(selectedNode)
+                    qnode._unhighlight()
                 self._highlight()
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
 
     def mouseReleaseEvent(self, event):
-        scene = event.scenePos()
-        mouse = event.pos()
         global newedge
         global env
         global editor
+        global selectedNode
+        
+        scene = event.scenePos()
+        mouse = event.pos()
         
         if newedge:
             transform = QtGui.QTransform()
-            nodes = [n for n in self.scene().items(scene) if isinstance(n, GraphicalNode)]
+            nodes = [n for n in self.scene().items(scene) if isinstance(n, QNode)]
             destNode = nodes[0] if nodes else None
             self.scene().removeItem(newedge)
             if destNode and destNode is not self: # hovering over another node
                 # TODO: make an edge
-                edge = GraphicalEdge.fromArrow(newedge, self, destNode)
+                edge = QEdge.fromArrow(newedge, self, destNode)
                 self.scene().addItem(edge)
             newedge = None
         elif not self._movedp:
-            node = nodeFromGraphicalNode(self)
-            if selectedNode is node:
+            if selectedNode is self:
                 editor.setNode(None)
                 selectedNode = None
                 self._unhighlight()
             else:
-                selectedNode = nodeFromGraphicalNode(self)
-                editor.setNode(selectedNode)
+                selectedNode = self
+                editor.setNode(nodeFromQNode(self))
                 self._highlight()
         else:
-            selectedNode = nodeFromGraphicalNode(self)
-            editor.setNode(selectedNode)
+            selectedNode = self
+            editor.setNode(nodeFromQNode(self))
             
         self._movedp = False
+
+    def _highlighted():
+        return self._highlightedp
 
     def mouseMoveEvent(self, event):
         global destNode
@@ -329,7 +337,7 @@ class GraphicalNode(QtWidgets.QGraphicsItemGroup):
             self.setPos(newpos)
             self._publish()
 
-class GraphicalNodeView(QtWidgets.QGraphicsView):
+class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
         self._selected = False
@@ -347,14 +355,14 @@ class GraphicalNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
-class GraphicalNodeScene(QtWidgets.QGraphicsScene):
+class QNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
         super().__init__()
         self._nodes = []
         
     def addNode(self, node):
         self._nodes.append(node)
-        gnode = GraphicalNode()
+        gnode = QNode()
         node.connectField(gnode)
         self.addItem(gnode)
 
@@ -368,16 +376,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up scene
         global message
         
-        #self._scene = QtWidgets.QGraphicsScene()
-        global scene
-        scene = GraphicalNodeScene()
-        scene.setSceneRect(0, 0, 500, 500)
+        self._scene = QNodeScene()
+        self._scene.setSceneRect(-500, -500, 500, 500)
+        
         message = QtWidgets.QGraphicsSimpleTextItem("blah blah blah")
         message.setPos(-200, -60)
-        scene.addItem(message)
+        self._scene.addItem(message)
 
         # add the scene to the view
-        self._view = GraphicalNodeView(scene)
+        self._view = QNodeView(self._scene)
         self._view.setSceneRect(0, 0, 500, 500)
 
         # make the view the main widget of the window
@@ -386,8 +393,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # add a dock with a list
         self._dock = QtWidgets.QDockWidget("Task Editor")
         global editor
-        editor = NodeEditor()
-        global env
+        self._editor = QNodeEditor()
+        editor = self._editor
         #lines = ['a', 'b', 'c']
         #self._list.addItems(lines)
         self._dock.setWidget(editor)
@@ -405,12 +412,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self._toolbar.addAction(self._newAction)
 
     def newNode(self):
-        makeNode()
+        global editor
+        global selectedNode
+        node, qnode = makeNode()
+        self._scene.addItem(qnode)
+        if selectedNode:
+            selectedNode._unhighlight()
+        editor.setNode(node)
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
 
-class NodeEditor(QtWidgets.QFrame):
+class QNodeEditor(QtWidgets.QFrame):
     def __init__(self):
         QtWidgets.QFrame.__init__(self)
         self._title = QtWidgets.QTextEdit()
@@ -436,6 +449,7 @@ class NodeEditor(QtWidgets.QFrame):
             self._clear()
             self._setEnabled(False)
         else:
+            self._setEnabled(True)
             self._title.setText(self._node.title())
             self._urgent.setCheckState(checkstate(self._node.urgent()))
             self._important.setCheckState(checkstate(self._node.important()))
@@ -446,21 +460,21 @@ class NodeEditor(QtWidgets.QFrame):
         self._important.setCheckState(checkstate(False))
 
     def _setEnabled(self, val):
-        self._title.setDisabled(val)
-        self._urgent.setDisabled(val)
-        self._important.setDisabled(val)
+        self._title.setDisabled(not val)
+        self._urgent.setDisabled(not val)
+        self._important.setDisabled(not val)
 
     def _onTitleChange(self):
-        self._node.setTitle(self._title.toPlainText())
+        if self._node:
+            self._node.setTitle(self._title.toPlainText())
 
     def _onUrgentChange(self, state):
-        self._node.setUrgent(bool(state))
+        if self._node:
+            self._node.setUrgent(bool(state))
 
     def _onImptChange(self, state):
-        self._node.setImportant(bool(state))
-
-#pp = pprint.PrettyPrinter(indent=4)
-#pp.pprint(dispatchtab)
+        if self._node:
+            self._node.setImportant(bool(state))
 
 app = QtWidgets.QApplication(sys.argv)
 win = MainWindow("To-Done")
