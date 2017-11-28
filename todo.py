@@ -14,6 +14,25 @@ qedges = {} # maps origin and destination node IDs to QEdges
 outnodes = {} # maps node IDs to IDs of outnodes
 innodes = {} # maps node IDs to IDs of innodes
 
+def getState():
+    return {
+        "nodeid": nodeid,
+        "nodes": nodes,
+        "outnodes": outnodes,
+        "innodes": innodes
+    }
+
+def saveState(path, state):
+    assert path
+    assert state
+    with open(path, "w") as fp:
+        fp.write(str(state))
+
+def loadState(path):
+    assert path
+    with open(path, "r") as fp:
+        return eval(fp.read())
+
 def nodeFromQNode(gnode):
     return nodes[gnode.id]
 
@@ -167,14 +186,31 @@ class QEdge(QArrow):
             selectedEdge = self
         
 class Node(object):
-    def __init__(self, title="", urgent=True, important=True, id=0):
+    def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
         self.id = 0
         self._title = title
         self._urgentp = urgent
         self._importantp = important
-        self._innodes = 0
-        self._outnodes = 0
+        self._innodes = innodes
+        self._outnodes = outnodes
         self._listeners = set()
+
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        return ("Node(" +
+                "title={0}, " +
+                "urgent={1}, " +
+                "important={2}, " +
+                "id={3}, " +
+                "innodes={4}, " +
+                "outnodes={5}").format(repr(self._title),
+                                       repr(self._urgentp),
+                                       repr(self._importantp),
+                                       repr(self.id),
+                                       repr(self._innodes),
+                                       repr(self._outnodes))
 
     def _publish(self):
         for obj in self._listeners:
@@ -237,7 +273,6 @@ class Node(object):
 selectedNode = None
 selectedEdge = None
 newedge = None
-message = None
 editor = None
 nodelist = None
 
@@ -588,6 +623,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._toolbar = self.addToolBar("Task")
         self._addButton("&New Task", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
         self._addButton("&Save Tasks", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
+        self._addButton("&Load Tasks", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
 
     def _addButton(self, text, icontype, callback):
         assert self._toolbar
@@ -600,7 +636,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def _onSave(self):
         filename = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", "", ".todo")
         print("Saving tasks to file: {0}".format(filename))
+        print("State: {0}".format(getState()))
         # TODO: write graph to file
+        saveState(filename[0] + filename[1], getState())
+
+    def _onLoad(self):
+        filename = QtWidgets.QFileDialog.getOpenFileName(self, "Load file", "", ".todo")
+        print("Loading tasks from file: {0}".format(filename))
+        state = loadState(filename[0] + filename[1])
+        print("State: {0}", state)
     
     def _onNewNode(self):
         global nodeset
