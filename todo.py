@@ -586,17 +586,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._list)
 
         self._toolbar = self.addToolBar("Task")
-        style = self.style()
-        icon = style.standardIcon(25) # TODO: find where QStyle::SP_FileIcon is in PyQt
-#        self._newIcon = QtGui.QIcon.fromTheme("document-new", QtGui.QIcon(":/icon/quit"))
-        self._newIcon = QtGui.QIcon.fromTheme("document-new", icon)
-#        self._newIcon.setIconVisibleInMenu(True)
-        self._newAction = QtWidgets.QAction(self._newIcon, "&New Task", self)
-        self._newAction.triggered.connect(self.newNode)
-        self._newAction.setIconVisibleInMenu(True)
-        self._toolbar.addAction(self._newAction)
+        self._addButton("&New Task", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
+        self._addButton("&Save Tasks", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
 
-    def newNode(self):
+    def _addButton(self, text, icontype, callback):
+        assert self._toolbar
+        icon = self.style().standardIcon(icontype)
+        action = QtWidgets.QAction(icon, text, self)
+        action.triggered.connect(callback)
+        action.setIconVisibleInMenu(True)
+        self._toolbar.addAction(action)
+
+    def _onSave(self):
+        filename = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", "", ".todo")
+        print("Saving tasks to file: {0}".format(filename))
+        # TODO: write graph to file
+    
+    def _onNewNode(self):
         global nodeset
         global editor
         global selectedNode
