@@ -3,6 +3,7 @@ import math
 import sys
 import pprint
 import traceback
+import pickle
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
@@ -15,18 +16,28 @@ outnodes = {} # maps node IDs to IDs of outnodes
 innodes = {} # maps node IDs to IDs of innodes
 
 def getState():
-    return {
+    state = {
         "nodeid": nodeid,
-        "nodes": nodes,
         "outnodes": outnodes,
         "innodes": innodes
     }
+    state["nodes"] = {}
+    for id, node in nodes.items():
+        state["nodes"][id] = {
+            "title": node.title(),
+            "urgent": node.urgent(),
+            "important": node.important(),
+            "x": qnodes[id].x(),
+            "y": qnodes[id].y()
+        }
+    return state
 
 def saveState(path, state):
     assert path
     assert state
+    print("STATE", state)
     with open(path, "w") as fp:
-        fp.write(str(state))
+        fp.write(repr(state))
 
 def loadState(path):
     assert path
@@ -57,7 +68,7 @@ def angle(dx, dy):
     return theta
 
 class QArrow(QtWidgets.QGraphicsItemGroup):
-    def __init__(self, radius=0, angle=0, color=QtCore.Qt.black):
+    def __init__(self, radius=20, angle=math.pi/6, color=QtCore.Qt.black):
         QtWidgets.QGraphicsItemGroup.__init__(self)
         self._radius = radius
         self._angle = angle
@@ -112,7 +123,7 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._updateLines()
 
 class QEdge(QArrow):
-    def __init__(self, origin, dest, radius=0, angle=0):
+    def __init__(self, origin, dest, radius=20, angle=math.pi/6):
         QArrow.__init__(self, radius=radius, angle=angle)
         self._origin = origin
         self._dest = dest
@@ -187,7 +198,7 @@ class QEdge(QArrow):
         
 class Node(object):
     def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
-        self.id = 0
+        self.id = id
         self._title = title
         self._urgentp = urgent
         self._importantp = important
@@ -205,12 +216,12 @@ class Node(object):
                 "important={2}, " +
                 "id={3}, " +
                 "innodes={4}, " +
-                "outnodes={5}").format(repr(self._title),
-                                       repr(self._urgentp),
-                                       repr(self._importantp),
-                                       repr(self.id),
-                                       repr(self._innodes),
-                                       repr(self._outnodes))
+                "outnodes={5})").format(repr(self._title),
+                                        repr(self._urgentp),
+                                        repr(self._importantp),
+                                        repr(self.id),
+                                        repr(self._innodes),
+                                        repr(self._outnodes))
 
     def _publish(self):
         for obj in self._listeners:
@@ -325,8 +336,9 @@ def makeNode(title="", isurgent=False, isimportant=False):
     return (node, qnode)
 
 class QNode(QtWidgets.QGraphicsItemGroup):
-    def __init__(self, title=""):
+    def __init__(self, title="", id=0):
         QtWidgets.QGraphicsItemGroup.__init__(self)
+        self.id = id
 
         self._ellipse = QtWidgets.QGraphicsEllipseItem(0, 0, 100, 100)
         strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
@@ -348,6 +360,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 
     def addListener(self, obj):
         self._listeners.add(obj)
+        self._publish()
 
     def removeListener(self, obj):
         self._listeners.remove(obj)
@@ -364,6 +377,10 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 
     def y(self):
         return self.pos().y()
+
+    def setPosition(self, x, y):
+        self.setPos(x, y)
+        self._publish()
 
     def _highlight(self):
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
@@ -641,10 +658,47 @@ class MainWindow(QtWidgets.QMainWindow):
         saveState(filename[0] + filename[1], getState())
 
     def _onLoad(self):
-        filename = QtWidgets.QFileDialog.getOpenFileName(self, "Load file", "", ".todo")
+        filename = QtWidgets.QFileDialog.getOpenFileName(self, "Load file", "")
+        if not filename[0]:
+            return
         print("Loading tasks from file: {0}".format(filename))
-        state = loadState(filename[0] + filename[1])
-        print("State: {0}", state)
+        state = loadState(filename[0])
+        self._scene.clear() # remove all qedges and qnodes from scene
+        
+        # set state vars
+        global nodeid
+        nodeid = state["nodeid"]
+
+        global nodes
+        nodes = {}
+        
+        global qnodes
+        qnodes = {}
+        
+        newnodes = state["nodes"]
+        for id, node in newnodes.items():
+            nodes[id] = Node(title=node["title"],
+                             urgent=node["urgent"],
+                             important=node["important"],
+                             id=id)
+            qnodes[id] = QNode(title=node["title"], id=id)
+            qnodes[id].setPosition(node["x"], node["y"])
+            self._scene.addItem(qnodes[id])
+            nodes[id].addListener(qnodes[id])
+
+        global outnodes
+        outnodes = state["outnodes"]
+
+        global innodes
+        innodes = state["innodes"]
+
+        # restore qedges
+        for origin, dests in outnodes.items():
+            for dest in dests:
+                qedge = QEdge(qnodes[origin], qnodes[dest])
+                qnodes[origin].addListener(qedge)
+                qnodes[dest].addListener(qedge)
+                self._scene.addItem(qedge)
     
     def _onNewNode(self):
         global nodeset
