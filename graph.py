@@ -1,19 +1,24 @@
 # graph.py -- A network layout program.
 import math
 import sys
+import random
 import pprint
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
-relations = {} # maps a relation ID to a Relation
+selectedNode = None
+selectedEdge = None
 selectedRelation = None
+newedge = None
+editor = None
+nodelist = None
+
+relations = {} # maps a relation ID to a Relation
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
 qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
-outnodes = {} # maps node IDs to IDs of outnodes
-innodes = {} # maps node IDs to IDs of innodes
 
 colors = {
     "black": QtCore.Qt.black,
@@ -31,8 +36,8 @@ colors = {
     "lightGray": QtCore.Qt.lightGray,
     "magenta": QtCore.Qt.magenta,
     "red": QtCore.Qt.red,
-    "white": QtCore.Qt.white,
-    "yellow": QtCore.Qt.yellow,
+    # "white": QtCore.Qt.white,
+    # "yellow": QtCore.Qt.yellow,
 }
 
 def selectRelation(relation):
@@ -41,7 +46,7 @@ def selectRelation(relation):
     selectedRelation = relid
 
 def randomColor():
-    return QtCore.Qt.red
+    return [v for k, v in colors.items()][random.randint(0, len(colors)-1)]
 
 class Relation(object):
     def __init__(self, name, color=None, symmetric=False, transitive=True):
@@ -52,6 +57,39 @@ class Relation(object):
         self._innodes = {}
         self._outnodes = {}
 
+    def connect(self, srcid, dstid):
+        assert srcid in nodes
+        assert dstid in nodes
+        
+        nodes[srcid].addOutnode()
+        nodes[dstid].addInnode()
+        
+        if srcid not in self._outnodes:
+            self._outnodes[srcid] = set()
+        self._outnodes[srcid].add(dstid)
+        
+        if dstid not in self._innodes:
+            self._innodes[dstid] = set()
+        self._innodes[dstid].add(srcid)
+
+        # TODO: Restrict the relation to certain types of objects.
+        return True
+
+    def disconnect(self, srcid, dstid):
+        assert srcid in nodes
+        assert dstid in nodes
+        
+        nodes[srcid].removeOutnode()
+        nodes[dstid].removeInnode()
+
+        self._outnodes[srcid].remove(dstid)
+        if not self._outnodes[srcid]:
+            del self._outnodes[srcid]
+        self._innodes[dstid].remove(srcid)
+        if not self._innodes[dstid]:
+            del self._innodes[dstid]
+
+
 def makeRelation(name, color=None, symmetric=False, transitive=True):
     global relationID
     global relations
@@ -61,7 +99,7 @@ def makeRelation(name, color=None, symmetric=False, transitive=True):
 
 def getRelations():
     global relations
-    return [k for k in relations]
+    return [v for k, v in relations.items()]
 
 def getState():
     state = {
@@ -124,14 +162,15 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
         stroke.setColor(self._relation.color)
-        pen = QtGui.QPen(stroke, 2)
+        thickpen = QtGui.QPen(stroke, 2)
+        thinpen = QtGui.QPen(stroke, 1)
         
         self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._line.setPen(pen)
+        self._line.setPen(thinpen)
         self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow1.setPen(pen)
+        self._arrow1.setPen(thickpen)
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow2.setPen(pen)
+        self._arrow2.setPen(thickpen)
         
         self.addToGroup(self._line)
         self.addToGroup(self._arrow1)
@@ -244,7 +283,8 @@ class QEdge(QArrow):
                 selectedEdge._unhighlight()
             self._highlight()
             selectedEdge = self
-        
+
+
 class Node(object):
     def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
         self.id = id
@@ -330,11 +370,6 @@ class Node(object):
     def outnodes(self):
         return self._outnodes
 
-selectedNode = None
-selectedEdge = None
-newedge = None
-editor = None
-nodelist = None
 
 class QNodeList(QtWidgets.QListWidget):
     def __init__(self):
@@ -483,38 +518,35 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
 
+    def _connect(self, relation, srcQNode, dstQNode):
+        global newedge
+        global qedges
+
+        assert relation
+        assert srcQNode
+        assert dstQNode
+        
+        relation.connect(srcQNode.id, dstQNode.id)
+
+        edge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
+        qedges[(srcQNode.id, dstQNode.id, relation)] = edge
+        self.scene().addItem(edge)
+
+    def _getTarget(self, event):
+        nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNode)]
+        return nodes[0] if nodes else None
+
     def mouseReleaseEvent(self, event):
         global newedge
         global editor
         global selectedNode
         global selectedRelation
-        global outnodes
-        global innodes
-        
-        scene = event.scenePos()
-        mouse = event.pos()
         
         if newedge:
-            transform = QtGui.QTransform()
-            nodes = [n for n in self.scene().items(scene) if isinstance(n, QNode)]
-            destNode = nodes[0] if nodes else None
+            target = self._getTarget(event)
             self.scene().removeItem(newedge)
-            if destNode and destNode is not self: # hovering over another node
-                edge = QEdge.fromArrow(selectedRelation, newedge, self, destNode)
-                origin = nodeFromQNode(self)
-                dest = nodeFromQNode(destNode)
-                origin.addOutnode()
-                dest.addInnode()
-                if self.id not in outnodes:
-                    outnodes[self.id] = set()
-                if destNode.id not in innodes:
-                    innodes[destNode.id] = set()
-                outnodes[self.id].add(destNode.id)
-                innodes[destNode.id].add(self.id)
-                qedges[(self.id, destNode.id, selectedRelation)] = edge
-                self.scene().addItem(edge)
-                # print("Outnodes = {0}".format(outnodes))
-                # print("Innodes = {0}".format(innodes))
+            if target and target is not self: # hovering over another node
+                self._connect(selectedRelation, self, target)
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
@@ -570,11 +602,18 @@ class QNodeView(QtWidgets.QGraphicsView):
         self._dx = 0
         self._dy = 0
 
+    def _removeEdge(self, e):
+        global qedges
+        self.scene().removeItem(e)
+        e._origin.removeListener(e)
+        e._dest.removeListener(e)
+        e._relation.disconnect(e._origin.id, e._dest.id)
+        del qedges[(e._origin.id, e._dest.id, e._relation)]
+
     def keyPressEvent(self, event):
         global selectedEdge
         global selectedNode
-        global innodes
-        global outnodes
+        global selectedRelation
         global qedges
         global nodelist
         
@@ -585,57 +624,17 @@ class QNodeView(QtWidgets.QGraphicsView):
             return
 
         if selectedEdge:
-            assert not selectedNode
-            e = selectedEdge
+            self._removeEdge(selectedEdge)
             selectedEdge = None
-            self.scene().removeItem(e)
-            e._origin.removeListener(e)
-            e._dest.removeListener(e)
-            
-            origin = nodeFromQNode(e._origin)
-            dest = nodeFromQNode(e._dest)
-            origin.removeOutnode()
-            dest.removeInnode()
-
-            outnodes[origin.id].remove(dest.id)
-            if not outnodes[origin.id]:
-                del outnodes[origin.id]
-            innodes[dest.id].remove(origin.id)
-            if not innodes[dest.id]:
-                del innodes[dest.id]
-            del qedges[(origin.id, dest.id, e._relation)]
         else:
-            assert not selectedEdge
-            node = selectedNode
+            self.scene().removeItem(selectedNode)
+            nodeid = selectedNode.id
+            edgesToRemove = [v for k, v in qedges.items() if k[0] == nodeid or k[1] == nodeid]
+            for e in edgesToRemove:
+                self._removeEdge(e)
+            nodelist.remove(nodeFromQNode(selectedNode))
             selectedNode = None
-            self.scene().removeItem(node)
-            rmedges = [v for k, v in qedges.items() if k[0] == node.id or k[1] == node.id]
-            for e in rmedges:
-                self.scene().removeItem(e)
-                e._origin.removeListener(e)
-                e._dest.removeListener(e)
-
-                origin = nodeFromQNode(e._origin)
-                dest = nodeFromQNode(e._dest)
-                origin.removeOutnode()
-                dest.removeInnode()
-
-                innodes[dest.id].remove(origin.id)
-                if not innodes[dest.id]:
-                    del innodes[dest.id]
-                outnodes[origin.id].remove(dest.id)
-                if not outnodes[origin.id]:
-                    del outnodes[origin.id]
-                del qedges[(origin.id, dest.id, e._relation)]
-            if node.id in outnodes:
-                del outnodes[node.id]
-            if node.id in innodes:
-                del innodes[node.id]
-            nodelist.remove(nodeFromQNode(node))
                 
-        # print("Outnodes = {0}".format(outnodes))
-        # print("Innodes = {0}".format(innodes))
-            
     def wheelEvent(self, event):
         point = event.angleDelta()
         dy = point.y()
@@ -697,8 +696,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # add relation selector
         relsel = QtWidgets.QComboBox()
         for rel in getRelations():
-            relsel.addItem(rel)
+            relsel.addItem(rel.name)
+        self._selectRelation(0)
+        relsel.currentIndexChanged.connect(self._selectRelation)
         self._toolbar.addWidget(relsel)
+
+    def _selectRelation(self, index):
+        global selectedRelation
+        selectedRelation = getRelations()[index]
 
     def _addButton(self, text, icontype, callback):
         assert self._toolbar
@@ -759,7 +764,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._scene.addItem(qedge)
     
     def _onNewNode(self):
-        global nodeset
         global editor
         global selectedNode
         global nodelist
@@ -831,7 +835,10 @@ class QNodeEditor(QtWidgets.QFrame):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    selectedRelation = Relation("happens before")
+    relations = {
+        1: Relation("happens before"),
+        2: Relation("is older than"),
+    }
     # chooseRelation("happens before")
     win = MainWindow("Graph")
     win.show()
