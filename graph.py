@@ -1,19 +1,67 @@
-# todo.py -- A todo list program.
+# graph.py -- A network layout program.
 import math
 import sys
 import pprint
-import traceback
-import pickle
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 
+relations = {} # maps a relation ID to a Relation
+selectedRelation = None
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
-qedges = {} # maps origin and destination node IDs to QEdges
+qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
 outnodes = {} # maps node IDs to IDs of outnodes
 innodes = {} # maps node IDs to IDs of innodes
+
+colors = {
+    "black": QtCore.Qt.black,
+    "blue": QtCore.Qt.blue,
+    "cyan": QtCore.Qt.cyan,
+    "darkBlue": QtCore.Qt.darkBlue,
+    "darkCyan": QtCore.Qt.darkCyan,
+    "darkGray": QtCore.Qt.darkGray,
+    "darkGreen": QtCore.Qt.darkGreen,
+    "darkMagenta": QtCore.Qt.darkMagenta,
+    "darkRed": QtCore.Qt.darkRed,
+    "darkYellow": QtCore.Qt.darkYellow,
+    "gray": QtCore.Qt.gray,
+    "green": QtCore.Qt.green,
+    "lightGray": QtCore.Qt.lightGray,
+    "magenta": QtCore.Qt.magenta,
+    "red": QtCore.Qt.red,
+    "white": QtCore.Qt.white,
+    "yellow": QtCore.Qt.yellow,
+}
+
+def selectRelation(relation):
+    assert relid in relations
+    global selectedRelation
+    selectedRelation = relid
+
+def randomColor():
+    return QtCore.Qt.red
+
+class Relation(object):
+    def __init__(self, name, color=None, symmetric=False, transitive=True):
+        self.name = name
+        self.color = color if color else randomColor()
+        self.symmetric = symmetric
+        self.transitive = transitive
+        self._innodes = {}
+        self._outnodes = {}
+
+def makeRelation(name, color=None, symmetric=False, transitive=True):
+    global relationID
+    global relations
+    rel = Relation(name, color, symmetric, transitive)
+    relations[relationID] = rel
+    relationID += 1
+
+def getRelations():
+    global relations
+    return [k for k in relations]
 
 def getState():
     state = {
@@ -68,21 +116,21 @@ def angle(dx, dy):
     return theta
 
 class QArrow(QtWidgets.QGraphicsItemGroup):
-    def __init__(self, radius=20, angle=math.pi/6, color=QtCore.Qt.black):
+    def __init__(self, relation, radius=20, angle=math.pi/6):
         QtWidgets.QGraphicsItemGroup.__init__(self)
+        self._relation = relation
         self._radius = radius
         self._angle = angle
-        self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke.setColor(color)
-
+        stroke.setColor(self._relation.color)
         pen = QtGui.QPen(stroke, 2)
+        
+        self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
+        self._line.setPen(pen)
+        self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow1.setPen(pen)
-
-        pen = QtGui.QPen(stroke, 2)
+        self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow2.setPen(pen)
         
         self.addToGroup(self._line)
@@ -123,8 +171,9 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._updateLines()
 
 class QEdge(QArrow):
-    def __init__(self, origin, dest, radius=20, angle=math.pi/6):
-        QArrow.__init__(self, radius=radius, angle=angle)
+    def __init__(self, relation, origin, dest, radius=20, angle=math.pi/6):
+        QArrow.__init__(self, relation, radius=radius, angle=angle)
+        self._relation = relation
         self._origin = origin
         self._dest = dest
         self._origin.addListener(self)
@@ -147,13 +196,13 @@ class QEdge(QArrow):
 
     def _highlight(self):
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke.setColor(QtCore.Qt.black)
+        stroke.setColor(self._relation.color)
         pen = QtGui.QPen(stroke, 2)
         self._line.setPen(pen)
 
     def _unhighlight(self):
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke.setColor(QtCore.Qt.black)
+        stroke.setColor(self._relation.color)
         pen = QtGui.QPen(stroke, 1)
         self._line.setPen(pen)
 
@@ -161,9 +210,9 @@ class QEdge(QArrow):
         assert node is self._origin or node is self._dest
         self._setArrows()
 
-    def fromArrow(arrow, origin, dest):
+    def fromArrow(relation, arrow, origin, dest):
         line = arrow.line()
-        edge = QEdge(origin, dest, radius=arrow._radius, angle=arrow._angle)
+        edge = QEdge(relation, origin, dest, radius=arrow._radius, angle=arrow._angle)
         edge.setLine(line.x1(), line.y1(), line.x2(), line.y2())
         edge._setArrows()
         return edge
@@ -397,6 +446,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
     def mousePressEvent(self, event):
         global selectedNode
         global selectedEdge
+        global selectedRelation
         global editor
         
         button = event.button()
@@ -411,7 +461,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         if button == QtCore.Qt.RightButton:
             global newedge
             assert not newedge
-            newedge = QArrow(angle=math.pi/6, radius=20)
+            newedge = QArrow(selectedRelation, angle=math.pi/6, radius=20)
             x1 = self.pos().x() + 50
             y1 = self.pos().y() + 50
             dx = scene.x() - x1
@@ -437,6 +487,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         global newedge
         global editor
         global selectedNode
+        global selectedRelation
         global outnodes
         global innodes
         
@@ -449,7 +500,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             destNode = nodes[0] if nodes else None
             self.scene().removeItem(newedge)
             if destNode and destNode is not self: # hovering over another node
-                edge = QEdge.fromArrow(newedge, self, destNode)
+                edge = QEdge.fromArrow(selectedRelation, newedge, self, destNode)
                 origin = nodeFromQNode(self)
                 dest = nodeFromQNode(destNode)
                 origin.addOutnode()
@@ -460,7 +511,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
                     innodes[destNode.id] = set()
                 outnodes[self.id].add(destNode.id)
                 innodes[destNode.id].add(self.id)
-                qedges[(self.id, destNode.id)] = edge
+                qedges[(self.id, destNode.id, selectedRelation)] = edge
                 self.scene().addItem(edge)
                 # print("Outnodes = {0}".format(outnodes))
                 # print("Innodes = {0}".format(innodes))
@@ -552,7 +603,7 @@ class QNodeView(QtWidgets.QGraphicsView):
             innodes[dest.id].remove(origin.id)
             if not innodes[dest.id]:
                 del innodes[dest.id]
-            del qedges[(origin.id, dest.id)]
+            del qedges[(origin.id, dest.id, e._relation)]
         else:
             assert not selectedEdge
             node = selectedNode
@@ -575,7 +626,7 @@ class QNodeView(QtWidgets.QGraphicsView):
                 outnodes[origin.id].remove(dest.id)
                 if not outnodes[origin.id]:
                     del outnodes[origin.id]
-                del qedges[(origin.id, dest.id)]
+                del qedges[(origin.id, dest.id, e._relation)]
             if node.id in outnodes:
                 del outnodes[node.id]
             if node.id in innodes:
@@ -638,9 +689,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._list)
 
         self._toolbar = self.addToolBar("Task")
-        self._addButton("&New Task", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
-        self._addButton("&Save Tasks", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
-        self._addButton("&Load Tasks", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
+        self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
+        self._addButton("&Save Graph", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
+        self._addButton("&Load Graph", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
+        self._toolbar.addSeparator()
+
+        # add relation selector
+        relsel = QtWidgets.QComboBox()
+        for rel in getRelations():
+            relsel.addItem(rel)
+        self._toolbar.addWidget(relsel)
 
     def _addButton(self, text, icontype, callback):
         assert self._toolbar
@@ -773,6 +831,8 @@ class QNodeEditor(QtWidgets.QFrame):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    win = MainWindow("To-Done")
+    selectedRelation = Relation("happens before")
+    # chooseRelation("happens before")
+    win = MainWindow("Graph")
     win.show()
     app.exec_()
