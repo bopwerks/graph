@@ -1,6 +1,7 @@
 # Graph program
 
-* TODO Add scrollable list of relations with checkboxes to toggle their visibility.
+* DONE Add scrollable list of relations with checkboxes to toggle their visibility.
+* TODO Make checkboxes actually toggle the visibility of relations.
 * TODO Add button to make a new object.
 * TODO Hold new-object button to see list of options.
 * TODO Add button to define new relation.
