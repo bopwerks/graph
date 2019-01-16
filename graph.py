@@ -54,6 +54,7 @@ class Relation(object):
         self.color = color if color else randomColor()
         self.symmetric = symmetric
         self.transitive = transitive
+        self.visible = True
         self._innodes = {}
         self._outnodes = {}
 
@@ -407,20 +408,32 @@ class QNodeList(QtWidgets.QListWidget):
 class QRelationList(QtWidgets.QListWidget):
     def __init__(self):
         super().__init__()
-        self._relations = set()
+        self._relations = []
+        self.clicked.connect(self._onClicked)
+
+    def _onClicked(self, index):
+        assert index
+        global selectedRelation
+        row = index.row()
+        selectedRelation = self._relations[row]
+        isvisible = selectedRelation.visible
+        ischecked = self.item(row).checkState() == QtCore.Qt.Checked
+        if (isvisible or ischecked) and not (isvisible and ischecked):
+            selectedRelation.visible = ischecked
+            # TODO: Make all edges for the selected relation visible.
 
     def _updateList(self):
         self.clear()
         for relation in self._relations:
             item = QtWidgets.QListWidgetItem(relation.name, self)
-            item.setCheckState(QtCore.Qt.Unchecked)
+            item.setCheckState(QtCore.Qt.Checked if relation.visible else QtCore.Qt.Unchecked)
             self.addItem(item)
 #        print("Finished printing set {0}".format(self._nodes))
 
     def add(self, rel):
         assert rel
         # rel.addListener(self)
-        self._relations.add(rel)
+        self._relations.append(rel)
         self._updateList()
 #        print(self._nodes)
 
