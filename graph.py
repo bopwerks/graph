@@ -403,6 +403,40 @@ class QNodeList(QtWidgets.QListWidget):
     def onNodeUpdate(self, node):
         self._updateList()
 
+
+class QRelationList(QtWidgets.QListWidget):
+    def __init__(self):
+        super().__init__()
+        self._relations = set()
+
+    def _updateList(self):
+        self.clear()
+        for relation in self._relations:
+            item = QtWidgets.QListWidgetItem(relation.name, self)
+            item.setCheckState(QtCore.Qt.Unchecked)
+            self.addItem(item)
+#        print("Finished printing set {0}".format(self._nodes))
+
+    def add(self, rel):
+        assert rel
+        # rel.addListener(self)
+        self._relations.add(rel)
+        self._updateList()
+#        print(self._nodes)
+
+    def remove(self, rel):
+#        print("Removing {0} from set {1}".format(node, self._nodes))
+        assert rel
+        assert rel in self._relation
+        # rel.removeListener(self)
+        self._relations.remove(rel)
+        self._updateList()
+#        print(self._nodes)
+
+    def onNodeUpdate(self, node):
+        self._updateList()
+
+
 def makeNode(title="", isurgent=False, isimportant=False):
     """Adds a node to the graph and displays it on the canvas."""
     global nodeid
@@ -683,9 +717,14 @@ class MainWindow(QtWidgets.QMainWindow):
         nodelist = QNodeList()
         self._list.setWidget(nodelist)
 
+        self._relationList = QtWidgets.QDockWidget("Relations")
+        relationList = QRelationList()
+        self._relationList.setWidget(relationList)
+
         self.setWindowTitle(title)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._list)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._relationList)
 
         self._toolbar = self.addToolBar("Task")
         self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
@@ -696,6 +735,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # add relation selector
         relsel = QtWidgets.QComboBox()
         for rel in getRelations():
+            relationList.add(rel)
             relsel.addItem(rel.name)
         self._selectRelation(0)
         relsel.currentIndexChanged.connect(self._selectRelation)
