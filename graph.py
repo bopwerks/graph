@@ -404,6 +404,8 @@ class QNodeList(QtWidgets.QListWidget):
     def onNodeUpdate(self, node):
         self._updateList()
 
+def exclusive_or(a, b):
+    return (a or b) and not (a and b)
 
 class QRelationList(QtWidgets.QListWidget):
     def __init__(self):
@@ -411,16 +413,26 @@ class QRelationList(QtWidgets.QListWidget):
         self._relations = []
         self.clicked.connect(self._onClicked)
 
+    def _setRelationVisibility(self, relation, isvisible):
+            global qedges
+            for key, qedge in qedges.items():
+                rel = key[2]
+                if rel is relation:
+                    qedge.setVisible(isvisible)
+
     def _onClicked(self, index):
         assert index
         global selectedRelation
         row = index.row()
         selectedRelation = self._relations[row]
         isvisible = selectedRelation.visible
-        ischecked = self.item(row).checkState() == QtCore.Qt.Checked
-        if (isvisible or ischecked) and not (isvisible and ischecked):
-            selectedRelation.visible = ischecked
-            # TODO: Make all edges for the selected relation visible.
+        chosenVisibility = self.item(row).checkState() == QtCore.Qt.Checked
+        if isvisible != chosenVisibility:
+            selectedRelation.visible = chosenVisibility
+            self._setRelationVisibility(selectedRelation, chosenVisibility)
+
+    def length(self):
+        return len(self._relations)
 
     def _updateList(self):
         self.clear()
@@ -575,9 +587,10 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         
         relation.connect(srcQNode.id, dstQNode.id)
 
-        edge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
-        qedges[(srcQNode.id, dstQNode.id, relation)] = edge
-        self.scene().addItem(edge)
+        qedge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
+        qedge.setVisible(relation.visible)
+        qedges[(srcQNode.id, dstQNode.id, relation)] = qedge
+        self.scene().addItem(qedge)
 
     def _getTarget(self, event):
         nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNode)]
@@ -597,8 +610,8 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
-                editor.setNode(None)
                 selectedNode = None
+                editor.setNode(None)
                 self._unhighlight()
             else:
                 selectedNode = self
@@ -643,6 +656,8 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
+        brush = QtGui.QBrush(QtGui.QColor(64, 64, 64))
+        self.setBackgroundBrush(brush)
         self._selected = False
         self._listeners = []
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
@@ -723,10 +738,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add a dock with a task editor
         editor = QNodeEditor()
-        self._editor = QtWidgets.QDockWidget("Task Editor")
+        self._editor = QtWidgets.QDockWidget("Edit Object")
         self._editor.setWidget(editor)
 
-        self._list = QtWidgets.QDockWidget("Task List")
+        self._list = QtWidgets.QDockWidget("Objects")
         nodelist = QNodeList()
         self._list.setWidget(nodelist)
 
@@ -743,16 +758,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
         self._addButton("&Save Graph", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
         self._addButton("&Load Graph", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
-        self._toolbar.addSeparator()
+        # self._toolbar.addSeparator()
 
         # add relation selector
-        relsel = QtWidgets.QComboBox()
+        # relsel = QtWidgets.QComboBox()
         for rel in getRelations():
             relationList.add(rel)
-            relsel.addItem(rel.name)
+        if relationList.length() > 0:
+            relationList.setCurrentRow(0)
+        #     relsel.addItem(rel.name)
         self._selectRelation(0)
-        relsel.currentIndexChanged.connect(self._selectRelation)
-        self._toolbar.addWidget(relsel)
+        # self._relationList.setCurrentRow(0)
+        # relsel.currentIndexChanged.connect(self._selectRelation)
+        # self._toolbar.addWidget(relsel)
 
     def _selectRelation(self, index):
         global selectedRelation
