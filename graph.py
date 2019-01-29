@@ -258,6 +258,7 @@ class QEdge(QArrow):
         return edge
 
     def mousePressEvent(self, event):
+        print("QEdge::mousePressEvent")
         global selectedEdge
         global selectedNode
         global editor
@@ -483,10 +484,15 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         QtWidgets.QGraphicsItemGroup.__init__(self)
         self.id = id
 
+        # flags = QtWidgets.QGraphicsItem.GraphicsItemFlags()
+        # flags |= QtWidgets.QGraphicsItem.ItemClipsToShape
+        # flags |= QtWidgets.QGraphicsItem.ItemIsMovable
+        # self.setFlags(flags)
         self._ellipse = QtWidgets.QGraphicsEllipseItem(0, 0, 100, 100)
+        # self._ellipse.setFlags(flags)
         strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
         fillbrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        fillbrush.setColor(QtCore.Qt.lightGray)
+        fillbrush.setColor(QtGui.QColor(252, 201, 228))
         self._ellipse.setBrush(fillbrush)
         self._unhighlight()
         self.addToGroup(self._ellipse)
@@ -527,7 +533,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
 
     def _highlight(self):
         brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 4)
+        pen = QtGui.QPen(brush, 3)
         self._ellipse.setPen(pen)
         self._highlightedp = True
 
@@ -538,6 +544,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         self._highlightedp = False
         
     def mousePressEvent(self, event):
+        print("QNode::mousePressEvent")
         global selectedNode
         global selectedEdge
         global selectedRelation
@@ -577,6 +584,11 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
 
+        # Tell containing scene that we're handling this mouse event
+        # so we don't initiate a canvas drag.
+        # print("node Accepting!")
+        event.accept()
+
     def _connect(self, relation, srcQNode, dstQNode):
         global newedge
         global qedges
@@ -597,6 +609,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         return nodes[0] if nodes else None
 
     def mouseReleaseEvent(self, event):
+        print("QNode::mouseReleaseEvent")
         global newedge
         global editor
         global selectedNode
@@ -622,11 +635,13 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             editor.setNode(nodeFromQNode(self))
             
         self._movedp = False
+        event.accept()
 
     def _highlighted():
         return self._highlightedp
 
     def mouseMoveEvent(self, event):
+        # print("QNode::mouseMoveEvent")
         global destNode
         global newedge
         
@@ -652,6 +667,7 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             newpos = QtCore.QPointF(scene.x() - self._dx, scene.y() - self._dy)
             self.setPos(newpos)
             self._publish()
+        event.accept()
 
 class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
@@ -661,6 +677,8 @@ class QNodeView(QtWidgets.QGraphicsView):
         self._selected = False
         self._listeners = []
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        # self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        # self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
         self._dx = 0
         self._dy = 0
 
@@ -672,6 +690,9 @@ class QNodeView(QtWidgets.QGraphicsView):
         e._relation.disconnect(e._origin.id, e._dest.id)
         del qedges[(e._origin.id, e._dest.id, e._relation)]
 
+    def _isStageSelected(self):
+        return not selectedEdge and not selectedNode
+    
     def keyPressEvent(self, event):
         global selectedEdge
         global selectedNode
@@ -680,7 +701,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         global nodelist
         
         key = event.key()
-        if not selectedEdge and not selectedNode:
+        if self._isStageSelected():
             return
         if key != QtCore.Qt.Key_Delete and key != QtCore.Qt.Key_Backspace:
             return
@@ -705,17 +726,39 @@ class QNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
+    # def mousePressEvent(self, event):
+    #     global selectedNode
+    #     print("QNodeView::mousePressEvent")
+
+        # if event.button() == QtCore.Qt.LeftButton:
+        #     self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
+        # elif event.button() == QtCore.Qt.MiddleButton:
+        #     self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+
+        # QtWidgets.QGraphicsView.mousePressEvent(self, event)
+        # if not (selectedNode or selectedEdge):
+        #     # TODO: Record coords and start pan
+        #     pass
+
+    # def mouseReleaseEvent(self, event):
+    #     print("QNodeView::mouseReleaseEvent")
+    #     # self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
+    #     QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
+    #     if not (selectedNode or selectedEdge):
+    #         # TODO: Stop pan
+    #         pass
+
+    # def mouseMoveEvent(self, event):
+    #     print("QNodeView::mouseMoveEvent")
+    #     QtWidgets.QGraphicsView.mouseMoveEvent(self, event)
+    #     if not (selectedNode or selectedEdge):
+    #         # TODO: Pan
+    #         pass
+
 class QNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
         super().__init__()
-        self._nodes = []
-        
-    def addNode(self, node):
-        self._nodes.append(node)
-        gnode = QNode()
-        node.connectField(gnode)
-        self.addItem(gnode)
-
+                
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
@@ -727,11 +770,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
         self._scene = QNodeScene()
-        self._scene.setSceneRect(-500, -500, 500, 500)
+        # self._scene.setSceneRect(-500, -500, 500, 500)
 
         # add the scene to the view
         self._view = QNodeView(self._scene)
-        self._view.setSceneRect(0, 0, 500, 500)
+        # self._view.setSceneRect(0, 0, 500, 500)
 
         # make the view the main widget of the window
         self.setCentralWidget(self._view)
@@ -910,7 +953,6 @@ if __name__ == "__main__":
         1: Relation("happens before"),
         2: Relation("is older than"),
     }
-    # chooseRelation("happens before")
     win = MainWindow("Graph")
     win.show()
     app.exec_()

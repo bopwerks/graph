@@ -1,11 +1,11 @@
 # Graph program
 
 * DONE Add scrollable list of relations with checkboxes to toggle their visibility.
-* TODO Make checkboxes actually toggle the visibility of relations.
+* DONE Make checkboxes actually toggle the visibility of relations.
 * TODO Add button to make a new object.
 * TODO Hold new-object button to see list of options.
 * TODO Add button to define new relation.
 * TODO Add a relation editor pane.
 * TODO Add button to define new class.
 * TODO Add a class editor pane.
-* TODO Allow users to drag the stage around.
+* DONE Allow users to drag the stage around.
