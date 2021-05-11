@@ -273,17 +273,17 @@ class QEdge(QArrow):
             return
 
         if selectedNode:
-            selectedNode._unhighlight()
+            #selectedNode._unhighlight()
             selectedNode = None
-            editor.setNode(None)
+            #editor.setNode(None)
             
         if selectedEdge is self:
-            self._unhighlight()
+            #self._unhighlight()
             selectedEdge = None
         else:
             if selectedEdge:
                 selectedEdge._unhighlight()
-            self._highlight()
+            #self._highlight()
             selectedEdge = self
 
 
@@ -373,23 +373,46 @@ class Node(object):
         return self._outnodes
 
 
-class QNodeList(QtWidgets.QListWidget):
+class QNodeList(QtWidgets.QTableWidget):
     def __init__(self):
-        super().__init__()
-        self._nodes = set()
+        super().__init__(0, 3)
+        self._nodes = []
+        task = QtWidgets.QTableWidgetItem("Task")
+        task.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(0, task)
+        impt = QtWidgets.QTableWidgetItem("Important")
+        impt.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(1, impt)
+        urgent = QtWidgets.QTableWidgetItem("Urgent")
+        urgent.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(2, urgent)
+        self.cellChanged.connect(self._onCellChanged)
 
     def _updateList(self):
-        self.clear()
-        nodes = sorted([n for n in self._nodes if n.innodes() == 0],
-                       key=lambda n: (n.important(), n.urgent()), reverse=True)
+        self.clearContents()
+        # nodes = sorted([n for n in self._nodes if n.innodes() == 0],
+        #                key=lambda n: (n.important(), n.urgent()), reverse=True)
+        nodes = self._nodes
+        row = 0
+        self.setRowCount(len(nodes))
         for node in nodes:
-            self.addItem(node.title())
+            title = QtWidgets.QTableWidgetItem(node.title())
+            self.setItem(row, 0, title)
+            impt = QtWidgets.QTableWidgetItem()
+            impt.setFlags(impt.flags() | QtCore.Qt.ItemIsUserCheckable)
+            impt.setCheckState(QtCore.Qt.Checked if node.important() else QtCore.Qt.Unchecked)
+            self.setItem(row, 1, impt)
+            urgent = QtWidgets.QTableWidgetItem()
+            urgent.setFlags(urgent.flags() | QtCore.Qt.ItemIsUserCheckable)
+            urgent.setCheckState(QtCore.Qt.Checked if node.urgent() else QtCore.Qt.Unchecked)
+            self.setItem(row, 2, urgent)
+            row += 1
 #        print("Finished printing set {0}".format(self._nodes))
 
     def add(self, node):
         assert node
-        node.addListener(self)
-        self._nodes.add(node)
+        #node.addListener(self)
+        self._nodes.append(node)
         self._updateList()
 #        print(self._nodes)
 
@@ -397,7 +420,7 @@ class QNodeList(QtWidgets.QListWidget):
 #        print("Removing {0} from set {1}".format(node, self._nodes))
         assert node
         assert node in self._nodes
-        node.removeListener(self)
+        #node.removeListener(self)
         self._nodes.remove(node)
         self._updateList()
 #        print(self._nodes)
@@ -405,8 +428,16 @@ class QNodeList(QtWidgets.QListWidget):
     def onNodeUpdate(self, node):
         self._updateList()
 
-def exclusive_or(a, b):
-    return (a or b) and not (a and b)
+    def _onCellChanged(self, row, col):
+        cell = self.item(row, col)
+        node = self._nodes[row]
+        if col == 0:
+            node.setTitle(cell.text())
+        elif col == 1:
+            node.setImportant(True if cell.checkState() == QtCore.Qt.Checked else False)
+        elif col == 2:
+            node.setUrgent(True if cell.checkState() == QtCore.Qt.Checked else False)
+        print(node)
 
 class QRelationList(QtWidgets.QListWidget):
     def __init__(self):
@@ -462,64 +493,25 @@ class QRelationList(QtWidgets.QListWidget):
     def onNodeUpdate(self, node):
         self._updateList()
 
-
 def makeNode(title="", isurgent=False, isimportant=False):
     """Adds a node to the graph and displays it on the canvas."""
     global nodeid
     nodeid += 1
     
-    node = Node(title, isurgent, isimportant)
-    node.id = nodeid
-    nodes[node.id] = node
+    node = Node(title, isurgent, isimportant, nodeid)
+    nodes[nodeid] = node
 
-    qnode = QNode(title)
-    qnode.id = nodeid
-    qnodes[node.id] = qnode
+    qnode = QNodeWidget(nodeid)
+    qnodes[nodeid] = qnode
 
     node.addListener(qnode)
-    return (node, qnode)
+    return (node, QNodeProxy(qnode))
 
-class QNode(QtWidgets.QGraphicsItemGroup):
-    def __init__(self, title="", id=0):
-        QtWidgets.QGraphicsItemGroup.__init__(self)
-        self.id = id
-
-        # flags = QtWidgets.QGraphicsItem.GraphicsItemFlags()
-        # flags |= QtWidgets.QGraphicsItem.ItemClipsToShape
-        # flags |= QtWidgets.QGraphicsItem.ItemIsMovable
-        # self.setFlags(flags)
-        self._ellipse = QtWidgets.QGraphicsEllipseItem(0, 0, 100, 100)
-        # self._ellipse.setFlags(flags)
-        strokebrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        fillbrush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        fillbrush.setColor(QtGui.QColor(252, 201, 228))
-        self._ellipse.setBrush(fillbrush)
-        self._unhighlight()
-        self.addToGroup(self._ellipse)
-        
-        self._text = QtWidgets.QGraphicsSimpleTextItem(title)
-        self._text.setPos(25, 25)
-        self.addToGroup(self._text)
-        
-        self._dx = 0
-        self._dy = 0
-        self._movedp = False
+class QNodeProxy(QtWidgets.QGraphicsProxyWidget):
+    def __init__(self, widget):
+        QtWidgets.QGraphicsProxyWidget.__init__(self)
+        self.setWidget(widget)
         self._listeners = set()
-        self.setPos(0, 0)
-
-    def addListener(self, obj):
-        self._listeners.add(obj)
-        self._publish()
-
-    def removeListener(self, obj):
-        self._listeners.remove(obj)
-
-    def _publish(self):
-        for obj in self._listeners:
-            obj.onNodeUpdate(self)
-
-    def onNodeUpdate(self, node):
-        self._text.setText(node.title())
 
     def x(self):
         return self.pos().x()
@@ -531,20 +523,27 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         self.setPos(x, y)
         self._publish()
 
-    def _highlight(self):
-        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 3)
-        self._ellipse.setPen(pen)
-        self._highlightedp = True
+    def _connect(self, relation, srcQNode, dstQNode):
+        global newedge
+        global qedges
 
-    def _unhighlight(self):
-        brush = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        pen = QtGui.QPen(brush, 1)
-        self._ellipse.setPen(pen)
-        self._highlightedp = False
+        assert relation
+        assert srcQNode
+        assert dstQNode
+        
+        relation.connect(srcQNode.id, dstQNode.id)
+
+        qedge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
+        qedge.setVisible(relation.visible)
+        qedges[(srcQNode.id, dstQNode.id, relation)] = qedge
+        self.scene().addItem(qedge)
+
+    def _getTarget(self, event):
+        nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNodeProxy)]
+        return nodes[0] if nodes else None
         
     def mousePressEvent(self, event):
-        print("QNode::mousePressEvent")
+        print("QNodeProxy::mousePressEvent")
         global selectedNode
         global selectedEdge
         global selectedRelation
@@ -575,12 +574,12 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             newedge.setLine(x1, y1, scene.x(), scene.y())
             self.scene().addItem(newedge)
         elif button == QtCore.Qt.LeftButton:
-            editor.setNode(nodeFromQNode(self))
+            #editor.setNode(nodeFromQNode(self))
             if selectedNode is not self:
                 if selectedNode:
-                    qnode = qnodeFromNode(selectedNode)
-                    qnode._unhighlight()
-                self._highlight()
+                    qnode = qnodeFromNode(selectedNode.widget())
+                    #qnode._unhighlight()
+                #self._highlight()
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
 
@@ -589,27 +588,8 @@ class QNode(QtWidgets.QGraphicsItemGroup):
         # print("node Accepting!")
         event.accept()
 
-    def _connect(self, relation, srcQNode, dstQNode):
-        global newedge
-        global qedges
-
-        assert relation
-        assert srcQNode
-        assert dstQNode
-        
-        relation.connect(srcQNode.id, dstQNode.id)
-
-        qedge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
-        qedge.setVisible(relation.visible)
-        qedges[(srcQNode.id, dstQNode.id, relation)] = qedge
-        self.scene().addItem(qedge)
-
-    def _getTarget(self, event):
-        nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNode)]
-        return nodes[0] if nodes else None
-
     def mouseReleaseEvent(self, event):
-        print("QNode::mouseReleaseEvent")
+        print("QNodeProxy::mouseReleaseEvent")        
         global newedge
         global editor
         global selectedNode
@@ -619,29 +599,26 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             target = self._getTarget(event)
             self.scene().removeItem(newedge)
             if target and target is not self: # hovering over another node
-                self._connect(selectedRelation, self, target)
+                self._connect(selectedRelation, self.widget(), target.widget())
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
                 selectedNode = None
-                editor.setNode(None)
-                self._unhighlight()
+                #editor.setNode(None)
+                #self._unhighlight()
             else:
                 selectedNode = self
-                editor.setNode(nodeFromQNode(self))
-                self._highlight()
+               # editor.setNode(nodeFromQNode(self))
+                #self._highlight()
         else:
             selectedNode = self
-            editor.setNode(nodeFromQNode(self))
+            #editor.setNode(nodeFromQNode(self))
             
         self._movedp = False
         event.accept()
 
-    def _highlighted():
-        return self._highlightedp
-
     def mouseMoveEvent(self, event):
-        # print("QNode::mouseMoveEvent")
+        print("QNodeProxy::mouseMoveEvent")
         global destNode
         global newedge
         
@@ -669,6 +646,67 @@ class QNode(QtWidgets.QGraphicsItemGroup):
             self._publish()
         event.accept()
 
+    def _highlighted():
+        return self._highlightedp
+
+    def addListener(self, obj):
+        self._listeners.add(obj)
+        self._publish()
+
+    def removeListener(self, obj):
+        self._listeners.remove(obj)
+
+    def _publish(self):
+        for obj in self._listeners:
+            obj.onNodeUpdate(self)
+    
+class QNodeWidget(QtWidgets.QWidget):
+    def __init__(self, id):
+        QtWidgets.QWidget.__init__(self)
+        #self.setMaximumWidth(300)
+        self._layout = QtWidgets.QVBoxLayout(self)
+
+        self._pixmap = QtGui.QPixmap(".\\pic.jpg")
+        self._image = QtWidgets.QLabel()
+        #policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        #self._image.setSizePolicy(policy)
+        self._image.setPixmap(self._pixmap)
+        self._image.setScaledContents(True)
+        #self._image.setMaximumHeight(200)
+        self._image.setMaximumWidth(300)
+        self._image.setMaximumHeight(200)
+        self._layout.addWidget(self._image)
+
+        self._text = QtWidgets.QLabel()
+        # label.setFrameStyle(QtWidgets.QFrame.StyledPanel | QtWidgets.QFrame.Plain)
+        font = self._text.font()
+        font.setPointSize(20)
+        self._text.setFont(font)
+        self._text.setWordWrap(True)
+        self._layout.addWidget(self._text)
+
+        self.id = id
+        
+        #self._dx = 0
+        #self._dy = 0
+        #self._movedp = False
+        self._listeners = set()
+        #self.setPos(0, 0)
+
+    def addListener(self, obj):
+        self._listeners.add(obj)
+        self._publish()
+
+    def removeListener(self, obj):
+        self._listeners.remove(obj)
+
+    def _publish(self):
+        for obj in self._listeners:
+            obj.onNodeUpdate(self)
+
+    def onNodeUpdate(self, node):
+        self._text.setText(node.title())
+
 class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
@@ -676,11 +714,10 @@ class QNodeView(QtWidgets.QGraphicsView):
         self.setBackgroundBrush(brush)
         self._selected = False
         self._listeners = []
+        #self.setTransformationAnchor(QtWidgets.QGraphicsView.NoAnchor)
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
-        # self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        # self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self._dx = 0
-        self._dy = 0
+        #self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
+        #self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
 
     def _removeEdge(self, e):
         global qedges
@@ -701,6 +738,10 @@ class QNodeView(QtWidgets.QGraphicsView):
         global nodelist
         
         key = event.key()
+        if key == QtCore.Qt.Key_Space:
+            rect = self.scene().itemsBoundingRect()
+            self.scene().setSceneRect(rect)
+            return
         if self._isStageSelected():
             return
         if key != QtCore.Qt.Key_Delete and key != QtCore.Qt.Key_Backspace:
@@ -727,38 +768,27 @@ class QNodeView(QtWidgets.QGraphicsView):
             self.scale(1/1.1, 1/1.1)
 
     # def mousePressEvent(self, event):
-    #     global selectedNode
-    #     print("QNodeView::mousePressEvent")
-
-        # if event.button() == QtCore.Qt.LeftButton:
-        #     self.setDragMode(QtWidgets.QGraphicsView.RubberBandDrag)
-        # elif event.button() == QtCore.Qt.MiddleButton:
-        #     self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
-
-        # QtWidgets.QGraphicsView.mousePressEvent(self, event)
-        # if not (selectedNode or selectedEdge):
-        #     # TODO: Record coords and start pan
-        #     pass
+    #     event.ignore()
+    #     super().mousePressEvent(event)
 
     # def mouseReleaseEvent(self, event):
-    #     print("QNodeView::mouseReleaseEvent")
-    #     # self.setDragMode(QtWidgets.QGraphicsView.NoDrag)
-    #     QtWidgets.QGraphicsView.mouseReleaseEvent(self, event)
-    #     if not (selectedNode or selectedEdge):
-    #         # TODO: Stop pan
-    #         pass
-
+    #     event.ignore()
+    #     super().mouseReleaseEvent(event)
+    
     # def mouseMoveEvent(self, event):
-    #     print("QNodeView::mouseMoveEvent")
-    #     QtWidgets.QGraphicsView.mouseMoveEvent(self, event)
-    #     if not (selectedNode or selectedEdge):
-    #         # TODO: Pan
-    #         pass
+    #     event.ignore()
+    #     super().mouseMoveEvent(event)
 
 class QNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
-        super().__init__()
-                
+        QtWidgets.QGraphicsScene.__init__(self)
+
+class QNodePalette(QtWidgets.QListWidget):
+    def __init__(self):
+        QtWidgets.QListWidget.__init__(self)
+        # TODO: Add task and goal items to the list
+        # TODO: Implement drag and drop from this list to the graph
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
@@ -770,7 +800,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
         self._scene = QNodeScene()
-        # self._scene.setSceneRect(-500, -500, 500, 500)
+        #self._scene.setSceneRect(0, 0, 100, 100)
 
         # add the scene to the view
         self._view = QNodeView(self._scene)
@@ -780,11 +810,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self._view)
 
         # add a dock with a task editor
-        editor = QNodeEditor()
-        self._editor = QtWidgets.QDockWidget("Edit Object")
-        self._editor.setWidget(editor)
+        # editor = QNodeEditor()
+        # self._editor = QtWidgets.QDockWidget("Edit Object")
+        # self._editor.setWidget(editor)
 
-        self._list = QtWidgets.QDockWidget("Objects")
+        self._list = QtWidgets.QDockWidget("Goals && Tasks")
         nodelist = QNodeList()
         self._list.setWidget(nodelist)
 
@@ -793,9 +823,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._relationList.setWidget(relationList)
 
         self.setWindowTitle(title)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._list)
+        # self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self._list)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._relationList)
+
+        self._palette = QtWidgets.QDockWidget("Palette")
+        self._palette.setWidget(QNodePalette())
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
 
         self._toolbar = self.addToolBar("Task")
         self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
@@ -881,14 +915,14 @@ class MainWindow(QtWidgets.QMainWindow):
         global editor
         global selectedNode
         global nodelist
-        node, qnode = makeNode()
+        node, qnode = makeNode("New Task")
         nodelist.add(node)
         self._scene.addItem(qnode)
-        if selectedNode:
-            selectedNode._unhighlight()
+        # if selectedNode:
+        #     selectedNode._unhighlight()
         selectedNode = qnode
-        selectedNode._highlight()
-        editor.setNode(node)
+        #selectedNode._highlight()
+        # editor.setNode(node)
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
@@ -953,6 +987,6 @@ if __name__ == "__main__":
         1: Relation("happens before"),
         2: Relation("is older than"),
     }
-    win = MainWindow("Graph")
+    win = MainWindow("Complevi")
     win.show()
     app.exec_()
