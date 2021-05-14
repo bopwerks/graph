@@ -2,10 +2,12 @@
 import math
 import sys
 import random
-import pprint
+import model
+import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
+from PyQt5.QtWidgets import QApplication
 
 selectedNode = None
 selectedEdge = None
@@ -14,93 +16,42 @@ newedge = None
 editor = None
 nodelist = None
 
-relations = {} # maps a relation ID to a Relation
-nodeid = 0
-nodes = {} # maps node IDs to Node objects
 qnodes = {} # maps node IDs to QNode objects
 qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
 
-colors = {
-    "black": QtCore.Qt.black,
-    "blue": QtCore.Qt.blue,
-    "cyan": QtCore.Qt.cyan,
-    "darkBlue": QtCore.Qt.darkBlue,
-    "darkCyan": QtCore.Qt.darkCyan,
-    "darkGray": QtCore.Qt.darkGray,
-    "darkGreen": QtCore.Qt.darkGreen,
-    "darkMagenta": QtCore.Qt.darkMagenta,
-    "darkRed": QtCore.Qt.darkRed,
-    "darkYellow": QtCore.Qt.darkYellow,
-    "gray": QtCore.Qt.gray,
-    "green": QtCore.Qt.green,
-    "lightGray": QtCore.Qt.lightGray,
-    "magenta": QtCore.Qt.magenta,
-    "red": QtCore.Qt.red,
-    # "white": QtCore.Qt.white,
-    # "yellow": QtCore.Qt.yellow,
-}
+def random_color():
+    colors = {
+        "black": QtCore.Qt.black,
+        "blue": QtCore.Qt.blue,
+        "cyan": QtCore.Qt.cyan,
+        "darkBlue": QtCore.Qt.darkBlue,
+        "darkCyan": QtCore.Qt.darkCyan,
+        "darkGray": QtCore.Qt.darkGray,
+        "darkGreen": QtCore.Qt.darkGreen,
+        "darkMagenta": QtCore.Qt.darkMagenta,
+        "darkRed": QtCore.Qt.darkRed,
+        "darkYellow": QtCore.Qt.darkYellow,
+        "gray": QtCore.Qt.gray,
+        "green": QtCore.Qt.green,
+        "lightGray": QtCore.Qt.lightGray,
+        "magenta": QtCore.Qt.magenta,
+        "red": QtCore.Qt.red,
+        # "white": QtCore.Qt.white,
+        # "yellow": QtCore.Qt.yellow,
+    }
+    return [v for k, v in colors.items()][random.randint(0, len(colors)-1)]
 
 def selectRelation(relation):
     assert relid in relations
     global selectedRelation
     selectedRelation = relid
 
-def randomColor():
-    return [v for k, v in colors.items()][random.randint(0, len(colors)-1)]
-
-class Relation(object):
-    def __init__(self, name, color=None, symmetric=False, transitive=True):
-        self.name = name
-        self.color = color if color else randomColor()
-        self.symmetric = symmetric
-        self.transitive = transitive
-        self.visible = True
-        self._innodes = {}
-        self._outnodes = {}
-
-    def connect(self, srcid, dstid):
-        assert srcid in nodes
-        assert dstid in nodes
-        
-        nodes[srcid].addOutnode()
-        nodes[dstid].addInnode()
-        
-        if srcid not in self._outnodes:
-            self._outnodes[srcid] = set()
-        self._outnodes[srcid].add(dstid)
-        
-        if dstid not in self._innodes:
-            self._innodes[dstid] = set()
-        self._innodes[dstid].add(srcid)
-
-        # TODO: Restrict the relation to certain types of objects.
-        return True
-
-    def disconnect(self, srcid, dstid):
-        assert srcid in nodes
-        assert dstid in nodes
-        
-        nodes[srcid].removeOutnode()
-        nodes[dstid].removeInnode()
-
-        self._outnodes[srcid].remove(dstid)
-        if not self._outnodes[srcid]:
-            del self._outnodes[srcid]
-        self._innodes[dstid].remove(srcid)
-        if not self._innodes[dstid]:
-            del self._innodes[dstid]
-
-
-def makeRelation(name, color=None, symmetric=False, transitive=True):
+def makeRelation(name, color, symmetric=False, transitive=True):
     global relationID
     global relations
-    rel = Relation(name, color, symmetric, transitive)
+    rel = model.Relation(name, color, symmetric, transitive)
     relations[relationID] = rel
     relationID += 1
-
-def getRelations():
-    global relations
-    return [v for k, v in relations.items()]
 
 def getState():
     state = {
@@ -216,8 +167,8 @@ class QEdge(QArrow):
         self._relation = relation
         self._origin = origin
         self._dest = dest
-        self._origin.addListener(self)
-        self._dest.addListener(self)
+        self._origin.addListener(self._onNodeUpdate)
+        self._dest.addListener(self._onNodeUpdate)
         self._setArrows()
 
     def _setArrows(self):
@@ -246,7 +197,7 @@ class QEdge(QArrow):
         pen = QtGui.QPen(stroke, 1)
         self._line.setPen(pen)
 
-    def onNodeUpdate(self, node):
+    def _onNodeUpdate(self, node):
         assert node is self._origin or node is self._dest
         self._setArrows()
 
@@ -285,94 +236,6 @@ class QEdge(QArrow):
                 selectedEdge._unhighlight()
             #self._highlight()
             selectedEdge = self
-
-
-class Node(object):
-    def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
-        self.id = id
-        self._title = title
-        self._urgentp = urgent
-        self._importantp = important
-        self._innodes = innodes
-        self._outnodes = outnodes
-        self._listeners = set()
-
-    def __repr__(self):
-        return str(self)
-
-    def __str__(self):
-        return ("Node(" +
-                "title={0}, " +
-                "urgent={1}, " +
-                "important={2}, " +
-                "id={3}, " +
-                "innodes={4}, " +
-                "outnodes={5})").format(repr(self._title),
-                                        repr(self._urgentp),
-                                        repr(self._importantp),
-                                        repr(self.id),
-                                        repr(self._innodes),
-                                        repr(self._outnodes))
-
-    def _publish(self):
-        for obj in self._listeners:
-            obj.onNodeUpdate(self)
-
-    def addListener(self, obj):
-        self._listeners.add(obj)
-
-    def removeListener(self, obj):
-        self._listeners.remove(obj)
-
-    def setUrgent(self, urgentp):
-        self._urgentp = urgentp
-        self._publish()
-
-    def urgent(self):
-        return self._urgentp
-
-    def setImportant(self, importantp):
-        self._importantp = importantp
-        self._publish()
-
-    def important(self):
-        return self._importantp
-
-    def id(self):
-        return self._id
-
-    def title(self):
-        return self._title
-
-    def setTitle(self, title):
-        self._title = title
-        self._publish()
-
-    def addInnode(self):
-        self._innodes += 1
-        self._publish()
-
-    def removeInnode(self):
-        self._innodes -= 1
-        assert self._innodes >= 0
-        self._publish()
-        
-    def innodes(self):
-        return self._innodes
-
-    def addOutnode(self):
-        self._outnodes += 1
-        self._publish()
-
-    def removeOutnode(self):
-        self._outnodes -= 1
-        assert self._outnodes >= 0
-        self._publish()
-        
-    def outnodes(self):
-        return self._outnodes
-
-
 class QNodeList(QtWidgets.QTableWidget):
     def __init__(self):
         super().__init__(0, 3)
@@ -498,20 +361,19 @@ def makeNode(title="", isurgent=False, isimportant=False):
     global nodeid
     nodeid += 1
     
-    node = Node(title, isurgent, isimportant, nodeid)
+    node = model.Node(title, isurgent, isimportant, nodeid)
     nodes[nodeid] = node
 
     qnode = QNodeWidget(nodeid)
     qnodes[nodeid] = qnode
 
-    node.addListener(qnode)
+    node.addListener(qnode.onNodeUpdate)
     return (node, QNodeProxy(qnode))
 
-class QNodeProxy(QtWidgets.QGraphicsProxyWidget):
+class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Listener):
     def __init__(self, widget):
         QtWidgets.QGraphicsProxyWidget.__init__(self)
         self.setWidget(widget)
-        self._listeners = set()
 
     def x(self):
         return self.pos().x()
@@ -531,7 +393,7 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget):
         assert srcQNode
         assert dstQNode
         
-        relation.connect(srcQNode.id, dstQNode.id)
+        model.relation_connect(relation, srcQNode.id, dstQNode.id)
 
         qedge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
         qedge.setVisible(relation.visible)
@@ -648,19 +510,8 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget):
 
     def _highlighted():
         return self._highlightedp
-
-    def addListener(self, obj):
-        self._listeners.add(obj)
-        self._publish()
-
-    def removeListener(self, obj):
-        self._listeners.remove(obj)
-
-    def _publish(self):
-        for obj in self._listeners:
-            obj.onNodeUpdate(self)
     
-class QNodeWidget(QtWidgets.QWidget):
+class QNodeWidget(QtWidgets.QWidget, event.Listener):
     def __init__(self, id):
         QtWidgets.QWidget.__init__(self)
         #self.setMaximumWidth(300)
@@ -690,19 +541,7 @@ class QNodeWidget(QtWidgets.QWidget):
         #self._dx = 0
         #self._dy = 0
         #self._movedp = False
-        self._listeners = set()
         #self.setPos(0, 0)
-
-    def addListener(self, obj):
-        self._listeners.add(obj)
-        self._publish()
-
-    def removeListener(self, obj):
-        self._listeners.remove(obj)
-
-    def _publish(self):
-        for obj in self._listeners:
-            obj.onNodeUpdate(self)
 
     def onNodeUpdate(self, node):
         self._text.setText(node.title())
@@ -722,8 +561,8 @@ class QNodeView(QtWidgets.QGraphicsView):
     def _removeEdge(self, e):
         global qedges
         self.scene().removeItem(e)
-        e._origin.removeListener(e)
-        e._dest.removeListener(e)
+        e._origin.removeListener(e._onNodeUpdate)
+        e._dest.removeListener(e._onNodeUpdate)
         e._relation.disconnect(e._origin.id, e._dest.id)
         del qedges[(e._origin.id, e._dest.id, e._relation)]
 
@@ -767,21 +606,11 @@ class QNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
-    # def mousePressEvent(self, event):
-    #     event.ignore()
-    #     super().mousePressEvent(event)
-
-    # def mouseReleaseEvent(self, event):
-    #     event.ignore()
-    #     super().mouseReleaseEvent(event)
-    
-    # def mouseMoveEvent(self, event):
-    #     event.ignore()
-    #     super().mouseMoveEvent(event)
 
 class QNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self):
         QtWidgets.QGraphicsScene.__init__(self)
+
 
 class QNodePalette(QtWidgets.QListWidget):
     def __init__(self):
@@ -789,7 +618,7 @@ class QNodePalette(QtWidgets.QListWidget):
         # TODO: Add task and goal items to the list
         # TODO: Implement drag and drop from this list to the graph
 
-class MainWindow(QtWidgets.QMainWindow):
+class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
 
@@ -839,7 +668,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add relation selector
         # relsel = QtWidgets.QComboBox()
-        for rel in getRelations():
+        for rel in model.getRelations():
             relationList.add(rel)
         if relationList.length() > 0:
             relationList.setCurrentRow(0)
@@ -851,7 +680,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _selectRelation(self, index):
         global selectedRelation
-        selectedRelation = getRelations()[index]
+        selectedRelation = model.getRelations()[index]
 
     def _addButton(self, text, icontype, callback):
         assert self._toolbar
@@ -888,10 +717,10 @@ class MainWindow(QtWidgets.QMainWindow):
         
         newnodes = state["nodes"]
         for id, node in newnodes.items():
-            nodes[id] = Node(title=node["title"],
-                             urgent=node["urgent"],
-                             important=node["important"],
-                             id=id)
+            nodes[id] = node.Node(title=node["title"],
+                                  urgent=node["urgent"],
+                                  important=node["important"],
+                                  id=id)
             qnodes[id] = QNode(title=node["title"], id=id)
             qnodes[id].setPosition(node["x"], node["y"])
             self._scene.addItem(qnodes[id])
@@ -907,8 +736,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for origin, dests in outnodes.items():
             for dest in dests:
                 qedge = QEdge(qnodes[origin], qnodes[dest])
-                qnodes[origin].addListener(qedge)
-                qnodes[dest].addListener(qedge)
+                qnodes[origin].addListener(qedge._onNodeUpdate)
+                qnodes[dest].addListener(qedge._onNodeUpdate)
                 self._scene.addItem(qedge)
     
     def _onNewNode(self):
@@ -979,14 +808,3 @@ class QNodeEditor(QtWidgets.QFrame):
     def _onImptChange(self, state):
         if self._node:
             self._node.setImportant(bool(state))
-
-
-if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    relations = {
-        1: Relation("happens before"),
-        2: Relation("is older than"),
-    }
-    win = MainWindow("Complevi")
-    win.show()
-    app.exec_()
