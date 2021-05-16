@@ -2,6 +2,7 @@
 
 ## Todo
 * Add checkboxes next to classes to toggle visibility like relations
+* Fix arrow drawing between relations
 * Add a tree view that shows goal structure and the actionable items under them
 
 ## Features
@@ -29,6 +30,7 @@
 * As a user, I want to see which goals I'm working toward by completing a given task.
 
   Add a tree view which shows goals and the next actionable item to achieve it. Allow the user to invert the tree, so goals can be parents or children depending on what's useful to the user.
+
 * As a user, I want to see a plain todo list of actionable items sorted by priority.
 * As a user, I want to search for all goals and tasks by name, priority, and/or tag.
 * As a user, I want to toggle the visibility of goals and tasks with a given tag.

@@ -507,6 +507,7 @@ class QNodeWidget(QtWidgets.QWidget, event.Emitter):
     def __init__(self, id):
         QtWidgets.QWidget.__init__(self)
         #self.setMaximumWidth(300)
+        self.setAutoFillBackground(True)
         self._layout = QtWidgets.QVBoxLayout(self)
 
         self._pixmap = QtGui.QPixmap(".\\pic.jpg")
@@ -521,27 +522,37 @@ class QNodeWidget(QtWidgets.QWidget, event.Emitter):
         self._layout.addWidget(self._image)
 
         self.id = id
-        object = model.get_object(id)
-        self._text = QtWidgets.QLabel(object.get_field("Title"))
+        self._text = QtWidgets.QLabel()
         # label.setFrameStyle(QtWidgets.QFrame.StyledPanel | QtWidgets.QFrame.Plain)
         font = self._text.font()
         font.setPointSize(20)
         self._text.setFont(font)
         self._text.setWordWrap(True)
         self._layout.addWidget(self._text)
-
+        self.onNodeUpdate(id)
         
         #self._dx = 0
         #self._dy = 0
         #self._movedp = False
         #self.setPos(0, 0)
 
-    def onNodeUpdate(self, object):
+    def onNodeUpdate(self, object_id):
+        object = model.get_object(object_id)
+        
+        # Set background color
+        palette = self.palette()
+        color = object.get_field("Color")
+        bgcolor = QtGui.QColor(color.r, color.g, color.b)
+        palette.setColor(self.backgroundRole(), bgcolor)
+        self.setPalette(palette)
+
+        # Set label
         self._text.setText(object.get_field("Title"))
 
 class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
         super().__init__(scene)
+        scene.setSceneRect(0, 0, self.width(), self.height())
         self.setAcceptDrops(True)
         brush = QtGui.QBrush(QtGui.QColor(64, 64, 64))
         self.setBackgroundBrush(brush)
@@ -575,8 +586,15 @@ class QNodeView(QtWidgets.QGraphicsView):
         klass = model.get_class(class_id)
         object = make_object(class_id, "New {0}".format(klass.name))
         graphical_object = QNodeProxy(object)
-        graphical_object.setPos(event.pos())
         self.scene().addItem(graphical_object)
+
+        # Position the object so the cursor lies over its center
+        position = self.mapToScene(event.pos())
+        bounding_rect = graphical_object.boundingRect()
+        mid_x = position.x() - bounding_rect.width() / 2
+        mid_y = position.y() - bounding_rect.height() / 2
+        mid_position = QtCore.QPointF(mid_x, mid_y)
+        graphical_object.setPos(mid_position)
     
     def keyPressEvent(self, event):
         global selectedEdge

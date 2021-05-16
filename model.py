@@ -1,4 +1,5 @@
 import event
+import random
 
 class Node(event.Emitter):
     def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
@@ -89,6 +90,8 @@ class Relation(event.Emitter):
         self.color = color
         self.symmetric = symmetric
         self.transitive = transitive
+        self._max_innodes = -1
+        self._max_outnodes = -1
         self.visible = True
         self._innodes = {}
         self._outnodes = {}
@@ -215,7 +218,8 @@ def make_class(name, *custom_fields):
     default_fields = [
         Field("Title", str, ""),
         Field("Innodes", int, 0),
-        Field("Outnodes", int, 0)
+        Field("Outnodes", int, 0),
+        Field("Color", color, color.random())
     ]
     klass = Class(name, *default_fields, *custom_fields)
     classes.append(klass)
@@ -264,6 +268,17 @@ def connect(relation_id, *object_ids):
 def disconnect(relation_id, *object_ids):
     relation = get_relation(relation_id)
     relation.disconnect(*object_ids)
+
+class color(object):
+    def __init__(self, r, g, b):
+        self.r = r
+        self.g = g
+        self.b = b
+    
+    @staticmethod
+    def random():
+        rand = lambda: random.randint(0, 255)
+        return color(rand(), rand(), rand())
 
 goal_class = make_class("Goal")
 # goal1 = make_object(goal_class, "Be healthy")
