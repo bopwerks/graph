@@ -94,7 +94,6 @@ def getState():
 def saveState(path, state):
     assert path
     assert state
-    print("STATE", state)
     with open(path, "w") as fp:
         fp.write(repr(state))
 
@@ -230,7 +229,6 @@ class QEdge(QArrow):
         return edge
 
     def mousePressEvent(self, event):
-        print("QEdge::mousePressEvent")
         global selectedEdge
         global selectedNode
         global editor
@@ -284,7 +282,6 @@ class QObjectFilter(QtWidgets.QTableWidget):
         self._collection.remove_listener("object_changed", self._object_changed)
     
     def _object_created(self, object_id):
-        print("QObjectFilter::_object_created")
         object = model.get_object(object_id)
         if self._predicate(object):
             # Add the object to the widget
@@ -292,7 +289,6 @@ class QObjectFilter(QtWidgets.QTableWidget):
             class_name = object.klass.name
             object_title = object.get_field("Title")
 
-            print("Adding class {0} object {1}".format(class_name, object_title))
             nrows = len(self._matches_list)
             row = nrows - 1
             self.setRowCount(nrows)
@@ -302,7 +298,6 @@ class QObjectFilter(QtWidgets.QTableWidget):
             self.setItem(row, 1, object_item)
     
     def _object_deleted(self, object_id):
-        print("QObjectFilter::_object_deleted")
         if object_id in self._matches:
             # Remove the object from the widget
             row = self._matches_list.index(object_id) + 1
@@ -311,7 +306,6 @@ class QObjectFilter(QtWidgets.QTableWidget):
             del self._matches[object_id]
 
     def _object_changed(self, object_id):
-        print("QObjectFilter::_object_changed")
         if self._predicate(model.get_object(object_id)):
             if object_id in self._matches:
                 # TODO: Update the object in the display
@@ -354,23 +348,19 @@ class QRelationList(QtWidgets.QListWidget):
             item = QtWidgets.QListWidgetItem(relation.name, self)
             item.setCheckState(QtCore.Qt.Checked if relation.visible else QtCore.Qt.Unchecked)
             self.addItem(item)
-#        print("Finished printing set {0}".format(self._nodes))
 
     def add(self, rel):
         assert rel
         # rel.add_listener(self)
         self._relations.append(rel)
         self._updateList()
-#        print(self._nodes)
 
     def remove(self, rel):
-#        print("Removing {0} from set {1}".format(node, self._nodes))
         assert rel
         assert rel in self._relation
         # rel.remove_listener(self)
         self._relations.remove(rel)
         self._updateList()
-#        print(self._nodes)
 
     def onNodeUpdate(self, node):
         self._updateList()
@@ -411,7 +401,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         return nodes[0] if nodes else None
         
     def mousePressEvent(self, event):
-        print("QNodeProxy::mousePressEvent")
         global selectedNode
         global selectedEdge
         global selectedRelation
@@ -453,11 +442,9 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
 
         # Tell containing scene that we're handling this mouse event
         # so we don't initiate a canvas drag.
-        # print("node Accepting!")
         event.accept()
 
-    def mouseReleaseEvent(self, event):
-        print("QNodeProxy::mouseReleaseEvent")        
+    def mouseReleaseEvent(self, event):      
         global newedge
         global editor
         global selectedNode
@@ -486,7 +473,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         event.accept()
 
     def mouseMoveEvent(self, event):
-        print("QNodeProxy::mouseMoveEvent")
         global destNode
         global newedge
         
@@ -551,8 +537,6 @@ class QNodeWidget(QtWidgets.QWidget, event.Emitter):
         #self.setPos(0, 0)
 
     def onNodeUpdate(self, object):
-        print("QNodeWidget::onNodeUpdate")
-        print(object)
         self._text.setText(object.get_field("Title"))
 
 class QNodeView(QtWidgets.QGraphicsView):
@@ -580,16 +564,12 @@ class QNodeView(QtWidgets.QGraphicsView):
         return not selectedEdge and not selectedNode
 
     def dragEnterEvent(self, event):
-        print("QNodeView::dragEnterEvent")
         event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
-        print("QNodeView::dragMoveEvent")
         event.acceptProposedAction()
 
     def dropEvent(self, event):
-        print("QNodeView::dropEvent")
-        print(event.pos())
         event.acceptProposedAction()
         class_id = int(event.mimeData().text())
         klass = model.get_class(class_id)
@@ -772,8 +752,6 @@ class QMainWindow(QtWidgets.QMainWindow):
 
     def _onSave(self):
         filename = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", "", ".todo")
-        print("Saving tasks to file: {0}".format(filename))
-        print("State: {0}".format(getState()))
         # TODO: write graph to file
         saveState(filename[0] + filename[1], getState())
 
@@ -781,7 +759,6 @@ class QMainWindow(QtWidgets.QMainWindow):
         filename = QtWidgets.QFileDialog.getOpenFileName(self, "Load file", "")
         if not filename[0]:
             return
-        print("Loading tasks from file: {0}".format(filename))
         state = loadState(filename[0])
         self._scene.clear() # remove all qedges and qnodes from scene
         
