@@ -1,13 +1,18 @@
-class Listener(object):
+class Emitter(object):
     def __init__(self):
-        self._listeners = set()
+        self._listeners = {}
     
-    def _publish(self):
-        for fn in self._listeners:
-            fn(self)
+    def emit(self, event_name, *args):
+        for fn in self._listeners.get(event_name, set()):
+            fn(*args)
 
-    def addListener(self, fn):
-        self._listeners.add(fn)
+    def add_listener(self, event_name, fn):
+        if event_name not in self._listeners:
+            self._listeners[event_name] = set()
+        self._listeners[event_name].add(fn)
 
-    def removeListener(self, fn):
-        self._listeners.remove(fn)
+    def remove_listener(self, event_name, fn):
+        listeners = self._listeners.get(event_name, set())
+        listeners.remove(fn)
+        if not listeners:
+            del self._listeners[event_name]

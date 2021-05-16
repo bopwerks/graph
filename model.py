@@ -1,6 +1,6 @@
 import event
 
-class Node(event.Listener):
+class Node(event.Emitter):
     def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
         self.id = id
         self._title = title
@@ -29,14 +29,14 @@ class Node(event.Listener):
 
     def setUrgent(self, urgentp):
         self._urgentp = urgentp
-        self._publish()
+        self.emit()
 
     def urgent(self):
         return self._urgentp
 
     def setImportant(self, importantp):
         self._importantp = importantp
-        self._publish()
+        self.emit()
 
     def important(self):
         return self._importantp
@@ -49,28 +49,28 @@ class Node(event.Listener):
 
     def setTitle(self, title):
         self._title = title
-        self._publish()
+        self.emit()
 
     def addInnode(self):
         self._innodes += 1
-        self._publish()
+        self.emit()
 
     def removeInnode(self):
         self._innodes -= 1
         assert self._innodes >= 0
-        self._publish()
+        self.emit()
         
     def innodes(self):
         return self._innodes
 
     def addOutnode(self):
         self._outnodes += 1
-        self._publish()
+        self.emit()
 
     def removeOutnode(self):
         self._outnodes -= 1
         assert self._outnodes >= 0
-        self._publish()
+        self.emit()
         
     def outnodes(self):
         return self._outnodes
@@ -81,8 +81,9 @@ def make_id():
     _id += 1
     return _id
 
-class Relation(object):
+class Relation(event.Emitter):
     def __init__(self, name, color=None, symmetric=False, transitive=True):
+        super().__init__()
         self.id = make_id()
         self.name = name
         self.color = color
@@ -135,34 +136,6 @@ class Relation(object):
         self._innodes = {}
         self._outnodes = {}
 
-# maps a relation ID to a Relation
-relations = {
-    1: Relation("happens before"),
-    2: Relation("is older than"),
-}
-nodeid = 0
-nodes = {} # maps node IDs to Node objects
-
-def relation_connect(rel, srcid, dstid):
-    assert srcid in nodes
-    assert dstid in nodes
-
-    nodes[srcid].addOutnode()
-    nodes[dstid].addInnode()
-    rel.connect(srcid, dstid)
-
-def relation_disconnect(rel, srcid, dstid):
-    assert srcid in nodes
-    assert dstid in nodes
-
-    nodes[srcid].removeOutnode()
-    nodes[dstid].removeInnode()
-    rel.disconnect(srcid, dstid)
-
-def getRelations():
-    global relations
-    return [v for k, v in relations.items()]
-
 class Field(object):
     def __init__(self, name, type, initial_value):
         self.name = name
@@ -172,8 +145,9 @@ class Field(object):
     def __repr__(self):
         return "Field({0}, {1}, {2})".format(repr(self.name), repr(self.type), repr(self.initial_value))
 
-class Class(object):
+class Class(event.Emitter):
     def __init__(self, name, *fields):
+        super().__init__()
         self.id = make_id()
         self.name = name
         self.fields = fields
@@ -181,7 +155,7 @@ class Class(object):
     def __repr__(self):
         return "Class({0}, {1})".format(repr(self.name), ', '.join(map(repr, self.fields))) 
 
-class Object(event.Listener):
+class Object(event.Emitter):
     def __init__(self, klass, *values):
         super().__init__()
         self.id = make_id()
@@ -209,10 +183,28 @@ class Object(event.Listener):
             if field.name == name:
                 # TODO: Type-check value
                 self.fields[i] = value
+                self.emit("object_changed", self.id)
 
-classes = []
-objects = []
-relations = []
+class collection(list, event.Emitter):
+    def __init__(self):
+        list.__init__(self)
+        event.Emitter.__init__(self)
+    
+    def append(self, object):
+        super().append(object)
+        self.emit("object_created", object.id)
+        object.add_listener("object_changed", self._object_changed)
+    
+    def remove(self, object):
+        super().remove(object)
+        self.emit("object_deleted", object.id)
+    
+    def _object_changed(self, object_id):
+        self.emit("object_changed", object_id)
+
+classes = collection()
+objects = collection()
+relations = collection()
 
 def find_by_id(type, list, id):
     matches = [o for o in list if o.id == id]
@@ -274,26 +266,30 @@ def disconnect(relation_id, *object_ids):
     relation.disconnect(*object_ids)
 
 goal_class = make_class("Goal")
-goal1 = make_object(goal_class, "Be healthy")
+# goal1 = make_object(goal_class, "Be healthy")
 
-task_class = make_class("Task")
-task1 = make_object(task_class, "Exercise")
+task_class = make_class(
+    "Task",
+    Field("Urgent", bool, False),
+    Field("Important", bool, False)
+)
+# task1 = make_object(task_class, "Exercise")
 precedes = make_relation("precedes")
-task2 = make_object(task_class, "Eat Right")
-connect(precedes, task1, task2)
-connect(precedes, task2, goal1)
+# task2 = make_object(task_class, "Eat Right")
+# connect(precedes, task1, task2)
+# connect(precedes, task2, goal1)
 
-tag_class = make_class("Tag")
-tag1 = make_object(tag_class, "health")
-tag2 = make_object(tag_class, "exercise")
-is_child_of = make_relation("is a child of")
-connect(is_child_of, tag2, tag1)
+# tag_class = make_class("Tag")
+# tag1 = make_object(tag_class, "health")
+# tag2 = make_object(tag_class, "exercise")
+# is_child_of = make_relation("is a child of")
+# connect(is_child_of, tag2, tag1)
 
-is_tagged_by = make_relation("tags")
-connect(is_tagged_by, goal1, tag1)
+# is_tagged_by = make_relation("tags")
+# connect(is_tagged_by, goal1, tag1)
 
-connect(is_tagged_by, task1, tag2)
-connect(is_tagged_by, task2, tag1)
+# connect(is_tagged_by, task1, tag2)
+# connect(is_tagged_by, task2, tag1)
 
 def outnodes(object_id, *relation_ids):
     outnode_ids = set()
@@ -369,10 +365,17 @@ def lor(*operands):
         return False
     return fn
 
-filter1 = eq(field("Innodes"), const(0))
-for object in filter(filter1, objects):
-    print(object)
+# filter1 = eq(field("Innodes"), const(0))
+# for object in filter(filter1, objects):
+#     print(object)
 
 # filter2 = land(has_type(task_class), tagged_with("health"))
 # for object in filter(filter2, objects):
 #    print(object)
+
+def get_object_tags(object_id):
+    tag_relation = get_relation(is_tagged_by)
+    return list(tag_relation._outnodes.get(object_id, []))
+
+# for tag_id in get_object_tags(goal1):
+#     print(get_object(tag_id))
