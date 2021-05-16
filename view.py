@@ -241,11 +241,6 @@ class QEdge(QArrow):
         if button != QtCore.Qt.LeftButton:
             event.ignore()
             return
-
-        if selectedNode:
-            #selectedNode._unhighlight()
-            selectedNode = None
-            #editor.setNode(None)
             
         if selectedEdge is self:
             #self._unhighlight()
@@ -255,6 +250,8 @@ class QEdge(QArrow):
                 selectedEdge._unhighlight()
             #self._highlight()
             selectedEdge = self
+
+        super().mousePressEvent(event)
 
 class QObjectFilter(QtWidgets.QTableWidget):
     def __init__(self, collection, predicate):
@@ -268,7 +265,7 @@ class QObjectFilter(QtWidgets.QTableWidget):
 
         self._predicate = predicate
         self._collection = collection
-        self._matches = {}
+        self._matches = set()
         self._matches_list = []
         self._collection.add_listener("object_created", self._object_created)
         self._collection.add_listener("object_deleted", self._object_deleted)
@@ -286,6 +283,7 @@ class QObjectFilter(QtWidgets.QTableWidget):
         if self._predicate(object):
             # Add the object to the widget
             self._matches_list.append(object_id)
+            self._matches.add(object_id)
             class_name = object.klass.name
             object_title = object.get_field("Title")
 
@@ -300,10 +298,10 @@ class QObjectFilter(QtWidgets.QTableWidget):
     def _object_deleted(self, object_id):
         if object_id in self._matches:
             # Remove the object from the widget
-            row = self._matches_list.index(object_id) + 1
+            row = self._matches_list.index(object_id)
             self.removeRow(row)
             self._matches_list.remove(object_id)
-            del self._matches[object_id]
+            self._matches.remove(object_id)
 
     def _object_changed(self, object_id):
         if self._predicate(model.get_object(object_id)):
@@ -401,7 +399,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         return nodes[0] if nodes else None
         
     def mousePressEvent(self, event):
-        global selectedNode
         global selectedEdge
         global selectedRelation
         global editor
@@ -503,10 +500,12 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
     def _highlighted():
         return self._highlightedp
     
-class QNodeWidget(QtWidgets.QWidget, event.Emitter):
+class QNodeWidget(QtWidgets.QFrame, event.Emitter):
     def __init__(self, id):
-        QtWidgets.QWidget.__init__(self)
+        QtWidgets.QFrame.__init__(self)
         #self.setMaximumWidth(300)
+        self.setFrameShape(QtWidgets.QFrame.Box)
+        self.setFrameShadow(QtWidgets.QFrame.Plain)
         self.setAutoFillBackground(True)
         self._layout = QtWidgets.QVBoxLayout(self)
 
@@ -538,7 +537,7 @@ class QNodeWidget(QtWidgets.QWidget, event.Emitter):
 
     def onNodeUpdate(self, object_id):
         object = model.get_object(object_id)
-        
+
         # Set background color
         palette = self.palette()
         color = object.get_field("Color")
@@ -557,6 +556,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         brush = QtGui.QBrush(QtGui.QColor(64, 64, 64))
         self.setBackgroundBrush(brush)
         self._selected = False
+        self._selected_item = None
         self._listeners = []
         #self.setTransformationAnchor(QtWidgets.QGraphicsView.NoAnchor)
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
@@ -571,9 +571,6 @@ class QNodeView(QtWidgets.QGraphicsView):
         e._relation.disconnect(e._origin.id, e._dest.id)
         del qedges[(e._origin.id, e._dest.id, e._relation)]
 
-    def _isStageSelected(self):
-        return not selectedEdge and not selectedNode
-
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
 
@@ -585,20 +582,25 @@ class QNodeView(QtWidgets.QGraphicsView):
         class_id = int(event.mimeData().text())
         klass = model.get_class(class_id)
         object = make_object(class_id, "New {0}".format(klass.name))
-        graphical_object = QNodeProxy(object)
-        self.scene().addItem(graphical_object)
+        self.scene().addItem(object)
+        if self._selected_item:
+            self._selected_item.widget().setLineWidth(0)
+        self._selected_item = object
+        self._selected_item.widget().setLineWidth(2)
 
         # Position the object so the cursor lies over its center
         position = self.mapToScene(event.pos())
-        bounding_rect = graphical_object.boundingRect()
+        bounding_rect = object.boundingRect()
         mid_x = position.x() - bounding_rect.width() / 2
         mid_y = position.y() - bounding_rect.height() / 2
         mid_position = QtCore.QPointF(mid_x, mid_y)
-        graphical_object.setPos(mid_position)
+        object.setPos(mid_position)
+
+        # Allow the user to delete the node immediately after adding by pressing backspace
+        self.setFocus()
     
     def keyPressEvent(self, event):
         global selectedEdge
-        global selectedNode
         global selectedRelation
         global qedges
         global nodelist
@@ -608,7 +610,7 @@ class QNodeView(QtWidgets.QGraphicsView):
             rect = self.scene().itemsBoundingRect()
             self.scene().setSceneRect(rect)
             return
-        if self._isStageSelected():
+        if not self._selected_item:
             return
         if key != QtCore.Qt.Key_Delete and key != QtCore.Qt.Key_Backspace:
             return
@@ -617,13 +619,14 @@ class QNodeView(QtWidgets.QGraphicsView):
             self._removeEdge(selectedEdge)
             selectedEdge = None
         else:
-            self.scene().removeItem(selectedNode)
-            nodeid = selectedNode.id
-            edgesToRemove = [v for k, v in qedges.items() if k[0] == nodeid or k[1] == nodeid]
-            for e in edgesToRemove:
-                self._removeEdge(e)
-            nodelist.remove(nodeFromQNode(selectedNode))
-            selectedNode = None
+            #self.scene().removeItem(self._selected_item)
+            model.delete_object(self._selected_item.widget().id)
+            # edgesToRemove = [v for k, v in qedges.items() if k[0] == nodeid or k[1] == nodeid]
+            # for e in edgesToRemove:
+            #     self._removeEdge(e)
+            # nodelist.remove(nodeFromQNode(selectedNode))
+            self._selected_item.widget().setLineWidth(0)
+            self._selected_item = None
                 
     def wheelEvent(self, event):
         point = event.angleDelta()
@@ -633,18 +636,42 @@ class QNodeView(QtWidgets.QGraphicsView):
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
 
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        item = self.itemAt(event.pos())
+        if item:
+            item.widget().setLineWidth(2)
+            if self._selected_item:
+                self._selected_item.widget().setLineWidth(0)
+            self._selected_item = item
+        elif self._selected_item:
+            self._selected_item.widget().setLineWidth(0)
+            self._selected_item = None
 
 def make_object(klass, *args):
     object_id = model.make_object(klass, *args)
     qnode = QNodeWidget(object_id)
-    qnodes[object_id] = qnode
+    proxy = QNodeProxy(qnode)
+    qnodes[object_id] = proxy
     object = model.get_object(object_id)
     object.add_listener("object_changed", qnode.onNodeUpdate)
-    return qnode
+    return proxy
 
+def get_object(object_id):
+    assert object_id in qnodes
+    return qnodes[object_id]
 class QNodeScene(QtWidgets.QGraphicsScene):
-    def __init__(self):
+    def __init__(self, collection):
         super().__init__()
+        self._collection = collection
+        #self._collection.add_listener("object_created", self._object_created)
+        self._collection.add_listener("object_deleted", self._object_deleted)
+        #self._collection.add_listener("object_changed", self._object_changed)
+
+    def _object_deleted(self, object_id):
+        object = get_object(object_id)
+        self.removeItem(object)
+        # TODO: Remove edges connected to the object
 
 class QNodePalette(QtWidgets.QListWidget):
     def __init__(self, collection):
@@ -705,7 +732,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         # set size to 70% of screen
         self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
-        self._scene = QNodeScene()
+        self._scene = QNodeScene(model.objects)
         #self._scene.setSceneRect(0, 0, 100, 100)
 
         # add the scene to the view
@@ -721,7 +748,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         # self._editor.setWidget(editor)
 
         self._list = QtWidgets.QDockWidget("Goals && Tasks")
-        identity = lambda x: x
+        identity = model.eq(model.field("Innodes"), model.const(0))
         nodelist = QObjectFilter(model.objects, identity)
         self._list.setWidget(nodelist)
 
@@ -731,12 +758,12 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         self.setWindowTitle(title)
         # self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
-        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self._list)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._relationList)
 
         self._palette = QtWidgets.QDockWidget("Palette")
         self._palette.setWidget(QNodePalette(model.classes))
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._list)
 
         self._toolbar = self.addToolBar("Task")
         self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
@@ -816,8 +843,8 @@ class QMainWindow(QtWidgets.QMainWindow):
                 self._scene.addItem(qedge)
     
     def _onNewNode(self):
-        qnode = make_object(model.task_class, "New Task")
-        self._scene.addItem(QNodeProxy(qnode))
+        object = make_object(model.task_class, "New Task")
+        self._scene.addItem(object)
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked

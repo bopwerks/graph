@@ -1,6 +1,6 @@
 # Todo App Todos
 
-## Todo
+## Todo 
 * Add checkboxes next to classes to toggle visibility like relations
 * Fix arrow drawing between relations
 * Add a tree view that shows goal structure and the actionable items under them
