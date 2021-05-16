@@ -1,10 +1,8 @@
 # Todo App Todos
 
 ## Todo
-
-* Make a node palette
+* Add checkboxes next to classes to toggle visibility like relations
 * Add a tree view that shows goal structure and the actionable items under them
-*
 
 ## Features
 
@@ -21,6 +19,8 @@
   Users can currently do this by just creating items.
 
 * As a user, I want to toggle the visibility of tasks and goals that are actionable.
+
+  Add checkboxes next to classes to toggle visibility like relations
 
 * As a user, I want to toggle the visibility of tasks or goals that I'm unwilling to tackle right now.
 
