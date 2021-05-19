@@ -1,81 +1,6 @@
 import event
 import random
 
-class Node(event.Emitter):
-    def __init__(self, title="", urgent=True, important=True, id=0, innodes=0, outnodes=0):
-        self.id = id
-        self._title = title
-        self._urgentp = urgent
-        self._importantp = important
-        self._innodes = innodes
-        self._outnodes = outnodes
-        self._listeners = set()
-
-    def __repr__(self):
-        return str(self)
-
-    def __str__(self):
-        return ("Node(" +
-                "title={0}, " +
-                "urgent={1}, " +
-                "important={2}, " +
-                "id={3}, " +
-                "innodes={4}, " +
-                "outnodes={5})").format(repr(self._title),
-                                        repr(self._urgentp),
-                                        repr(self._importantp),
-                                        repr(self.id),
-                                        repr(self._innodes),
-                                        repr(self._outnodes))
-
-    def setUrgent(self, urgentp):
-        self._urgentp = urgentp
-        self.emit()
-
-    def urgent(self):
-        return self._urgentp
-
-    def setImportant(self, importantp):
-        self._importantp = importantp
-        self.emit()
-
-    def important(self):
-        return self._importantp
-
-    def id(self):
-        return self._id
-
-    def title(self):
-        return self._title
-
-    def setTitle(self, title):
-        self._title = title
-        self.emit()
-
-    def addInnode(self):
-        self._innodes += 1
-        self.emit()
-
-    def removeInnode(self):
-        self._innodes -= 1
-        assert self._innodes >= 0
-        self.emit()
-        
-    def innodes(self):
-        return self._innodes
-
-    def addOutnode(self):
-        self._outnodes += 1
-        self.emit()
-
-    def removeOutnode(self):
-        self._outnodes -= 1
-        assert self._outnodes >= 0
-        self.emit()
-        
-    def outnodes(self):
-        return self._outnodes
-
 _id = 0
 def make_id():
     global _id
@@ -154,9 +79,15 @@ class Class(event.Emitter):
         self.id = make_id()
         self.name = name
         self.fields = fields
+        self.visible = True
+    
+    def set_visible(self, is_visible):
+        self.visible = is_visible
+        self.emit("class_changed", self.id)
     
     def __repr__(self):
-        return "Class({0}, {1})".format(repr(self.name), ', '.join(map(repr, self.fields))) 
+        return "Class({0})".format(repr(self.name))
+        # return "Class({0}, {1})".format(repr(self.name), ', '.join(map(repr, self.fields))) 
 
 class Object(event.Emitter):
     def __init__(self, klass, *values):
@@ -173,7 +104,8 @@ class Object(event.Emitter):
                 self.fields.append(value)
 
     def __repr__(self):
-        return "Object({0}, {1})".format(repr(self.klass), ', '.join(map(repr, self.fields)))
+        return "Object({0})".format(repr(self.get_field("Title")))
+        # return "Object({0}, {1})".format(repr(self.klass), ', '.join(map(repr, self.fields)))
 
     def get_field(self, name):
         for i, field in enumerate(self.klass.fields):
@@ -187,6 +119,11 @@ class Object(event.Emitter):
                 # TODO: Type-check value
                 self.fields[i] = value
                 self.emit("object_changed", self.id)
+    
+    def _class_changed(self, class_id):
+        # TODO: Update fields
+        klass = get_class(class_id)
+        self.set_field("Visible", klass.visible)
 
 class collection(list, event.Emitter):
     def __init__(self):
@@ -206,8 +143,42 @@ class collection(list, event.Emitter):
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
 
+def _iter_objects(object_sets):
+    for object_set in object_sets:
+        for object in object_set:
+            yield object
+
+class collection_map(event.Emitter):
+    def __init__(self):
+        super().__init__()
+        self._objects = {}
+    
+    def append(self, object):
+        class_id = object.klass.id
+        if class_id not in self._objects:
+            self._objects[class_id] = set()
+        self._objects[class_id].add(object)
+        self.emit("object_created", object.id)
+        object.add_listener("object_changed", self._object_changed)
+    
+    def remove(self, object):
+        class_id = object.klass.id
+        assert class_id in self._objects
+        self._objects[class_id].remove(object)
+        object.remove_listener("object_changed", self._object_changed)
+        self.emit("object_deleted", object.id)
+    
+    def _object_changed(self, object_id):
+        self.emit("object_changed", object_id)
+    
+    def by_class(self, class_id):
+        return iter(self._objects.get(class_id, []))
+
+    def __iter__(self):
+        return _iter_objects(self._objects.values())
+
 classes = collection()
-objects = collection()
+objects = collection_map()
 relations = collection()
 
 def find_by_id(type, list, id):
@@ -220,7 +191,8 @@ def make_class(name, *custom_fields):
         Field("Title", str, ""),
         Field("Innodes", int, 0),
         Field("Outnodes", int, 0),
-        Field("Color", color, color.random())
+        Field("Color", color, color.random()),
+        Field("Visible", bool, True)
     ]
     klass = Class(name, *default_fields, *custom_fields)
     classes.append(klass)
@@ -240,13 +212,20 @@ def make_object(class_id, *values):
     klass = get_class(class_id)
     object = Object(klass, *values)
     objects.append(object)
+    klass.add_listener("class_changed", object._class_changed)
     return object.id
+
+def get_objects_by_class(class_id):
+    return objects.by_class(class_id)
 
 def get_object(object_id):
     return find_by_id("object", objects, object_id)
 
 def delete_object(object_id):
     # TODO: Remove all relations involving this object
+    object = get_object(object_id)
+    klass = object.klass
+    klass.remove_listener("class_changed", object._class_changed)
     objects.remove(get_object(object_id))
 
 def make_relation(name):

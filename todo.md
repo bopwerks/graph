@@ -1,7 +1,8 @@
 # Todo App Todos
 
-## Todo 
-* Add checkboxes next to classes to toggle visibility like relations
+## Todo
+* Add tags tree -- needs to be special structure to allow visibility of individual tags to be toggled
+* Add Image field to objects to customize image
 * Fix arrow drawing between relations
 * Add a tree view that shows goal structure and the actionable items under them
 

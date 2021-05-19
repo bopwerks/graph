@@ -487,6 +487,10 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
 
     def _highlighted():
         return self._highlightedp
+
+    def _object_changed(self, object_id):
+        object = model.get_object(object_id)
+        self.setVisible(object.get_field("Visible"))
     
 class QNodeWidget(QtWidgets.QFrame, event.Emitter):
     def __init__(self, id):
@@ -535,6 +539,8 @@ class QNodeWidget(QtWidgets.QFrame, event.Emitter):
 
         # Set label
         self._text.setText(object.get_field("Title"))
+
+        self.emit("object_changed", object_id)
 
 class QNodeView(QtWidgets.QGraphicsView):
     def __init__(self, scene):
@@ -643,6 +649,7 @@ def make_object(klass, *args):
     qnodes[object_id] = proxy
     object = model.get_object(object_id)
     object.add_listener("object_changed", qnode.onNodeUpdate)
+    qnode.add_listener("object_changed", proxy._object_changed)
     return proxy
 
 def get_object(object_id):
@@ -674,12 +681,24 @@ class QNodePalette(QtWidgets.QListWidget):
         self._classes = set()
         for klass in collection:
             self._object_created(klass.id)
+        self.clicked.connect(self._onClicked)
+
+    def _onClicked(self, index):
+        row = index.row()
+        class_id = self._class_list[row]
+        klass = model.get_class(class_id)
+        is_visible = self.item(row).checkState() == QtCore.Qt.Checked
+        # klass.visible = is_visible
+        klass.set_visible(is_visible)
+        # for object in model.get_objects_by_class(class_id):
+        #     object.set_field("Visible", is_visible)
     
     def _object_created(self, class_id):
         self._class_list.append(class_id)
         self._classes.add(class_id)
         klass = model.get_class(class_id)
         item = QtWidgets.QListWidgetItem(klass.name)
+        item.setCheckState(QtCore.Qt.Checked if klass.visible else QtCore.Qt.Unchecked)
         self.addItem(item)
 
     def _object_deleted(self, class_id):
@@ -735,7 +754,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         # self._editor = QtWidgets.QDockWidget("Edit Object")
         # self._editor.setWidget(editor)
 
-        self._list = QtWidgets.QDockWidget("Goals && Tasks")
+        self._list = QtWidgets.QDockWidget("Objects")
         identity = model.eq(model.field("Innodes"), model.const(0))
         nodelist = QObjectFilter(model.objects, identity)
         self._list.setWidget(nodelist)
@@ -747,16 +766,16 @@ class QMainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(title)
         # self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
 
-        self._palette = QtWidgets.QDockWidget("Palette")
+        self._palette = QtWidgets.QDockWidget("Classes")
         self._palette.setWidget(QNodePalette(model.classes))
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._list)
 
-        self._toolbar = self.addToolBar("Task")
-        self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
-        self._addButton("&Save Graph", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
-        self._addButton("&Load Graph", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
+        #self._toolbar = self.addToolBar("Task")
+        #self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
+        #self._addButton("&Save Graph", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
+        #self._addButton("&Load Graph", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
         # self._toolbar.addSeparator()
 
         # add relation selector
@@ -782,57 +801,6 @@ class QMainWindow(QtWidgets.QMainWindow):
         action.triggered.connect(callback)
         action.setIconVisibleInMenu(True)
         self._toolbar.addAction(action)
-
-    def _onSave(self):
-        filename = QtWidgets.QFileDialog.getSaveFileName(self, "Save file", "", ".todo")
-        # TODO: write graph to file
-        saveState(filename[0] + filename[1], getState())
-
-    def _onLoad(self):
-        filename = QtWidgets.QFileDialog.getOpenFileName(self, "Load file", "")
-        if not filename[0]:
-            return
-        state = loadState(filename[0])
-        self._scene.clear() # remove all qedges and qnodes from scene
-        
-        # set state vars
-        global nodeid
-        nodeid = state["nodeid"]
-
-        global nodes
-        nodes = {}
-        
-        global qnodes
-        qnodes = {}
-        
-        newnodes = state["nodes"]
-        for id, node in newnodes.items():
-            nodes[id] = node.Node(title=node["title"],
-                                  urgent=node["urgent"],
-                                  important=node["important"],
-                                  id=id)
-            qnodes[id] = QNode(title=node["title"], id=id)
-            qnodes[id].setPosition(node["x"], node["y"])
-            self._scene.addItem(qnodes[id])
-            nodes[id].add_listener("object_changed", qnodes[id]._onNodeUpdate)
-
-        global outnodes
-        outnodes = state["outnodes"]
-
-        global innodes
-        innodes = state["innodes"]
-
-        # restore qedges
-        for origin, dests in outnodes.items():
-            for dest in dests:
-                qedge = QEdge(qnodes[origin], qnodes[dest])
-                qnodes[origin].add_listener("graphical_object_changed", qedge._onNodeUpdate)
-                qnodes[dest].add_listener("graphical_object_changed", qedge._onNodeUpdate)
-                self._scene.addItem(qedge)
-    
-    def _onNewNode(self):
-        object = make_object(model.task_class, "New Task")
-        self._scene.addItem(object)
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
