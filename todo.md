@@ -39,7 +39,11 @@
 * As a user, I want to share my todo list online (i.e. make it visible to others).
 * As a user, I want to restrict the tasks and goals which are visibible in my shared todo list.
 * As a user, I want to package up common routines into a single node that I can drag from a node palette and drop onto my todo list.
+
 * As a user, I want a palette of nodes to drag and drop (or double-click) onto my graph.
+
+  This has now been added.
+
 * As a user, I want my node palette to offer nodes for automating tasks.
 * As a user, I want to specify a dependency between my task and the task of a person whose todo list I'm following.
 

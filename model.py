@@ -199,6 +199,7 @@ class collection(list, event.Emitter):
         object.add_listener("object_changed", self._object_changed)
     
     def remove(self, object):
+        object.remove_listener("object_changed", self._object_changed)
         super().remove(object)
         self.emit("object_deleted", object.id)
     

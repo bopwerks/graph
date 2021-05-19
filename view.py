@@ -47,28 +47,6 @@ def getRelations():
 qnodes = {} # maps node IDs to QNode objects
 qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
 
-def random_color():
-    colors = {
-        "black": QtCore.Qt.black,
-        "blue": QtCore.Qt.blue,
-        "cyan": QtCore.Qt.cyan,
-        "darkBlue": QtCore.Qt.darkBlue,
-        "darkCyan": QtCore.Qt.darkCyan,
-        "darkGray": QtCore.Qt.darkGray,
-        "darkGreen": QtCore.Qt.darkGreen,
-        "darkMagenta": QtCore.Qt.darkMagenta,
-        "darkRed": QtCore.Qt.darkRed,
-        "darkYellow": QtCore.Qt.darkYellow,
-        "gray": QtCore.Qt.gray,
-        "green": QtCore.Qt.green,
-        "lightGray": QtCore.Qt.lightGray,
-        "magenta": QtCore.Qt.magenta,
-        "red": QtCore.Qt.red,
-        # "white": QtCore.Qt.white,
-        # "yellow": QtCore.Qt.yellow,
-    }
-    return [v for k, v in colors.items()][random.randint(0, len(colors)-1)]
-
 def selectRelation(relation):
     assert relid in relations
     global selectedRelation
@@ -272,6 +250,14 @@ class QObjectFilter(QtWidgets.QTableWidget):
         self._collection.add_listener("object_changed", self._object_changed)
         for object in collection:
             self._object_created(object.id)
+
+        self.cellChanged.connect(self._cellChanged)
+
+    def _cellChanged(self, row, col):
+        object_id = self._matches_list[row]
+        object = model.get_object(object_id)
+        item = self.item(row, col)
+        object.set_field("Title", item.text())
     
     def closeEvent(self, event):
         self._collection.remove_listener("object_created", self._object_created)
@@ -291,6 +277,7 @@ class QObjectFilter(QtWidgets.QTableWidget):
             row = nrows - 1
             self.setRowCount(nrows)
             class_item = QtWidgets.QTableWidgetItem(class_name)
+            class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
             self.setItem(row, 0, class_item)
             object_item = QtWidgets.QTableWidgetItem(object_title)
             self.setItem(row, 1, object_item)
@@ -307,6 +294,7 @@ class QObjectFilter(QtWidgets.QTableWidget):
         if self._predicate(model.get_object(object_id)):
             if object_id in self._matches:
                 # TODO: Update the object in the display
+                # NB: Changing table items here will cause an infinite loop
                 pass
             else:
                 self._object_created(object_id)
