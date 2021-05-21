@@ -95,6 +95,7 @@ class Object(event.Emitter):
         self.id = make_id()
         self.klass = klass
         self.fields = []
+        self.tags = set()
         for i, field in enumerate(klass.fields):
             if i >= len(values):
                 self.fields.append(field.initial_value)
@@ -177,6 +178,27 @@ class collection_map(event.Emitter):
     def __iter__(self):
         return _iter_objects(self._objects.values())
 
+class Tag(object):
+    def __init__(self, name, parent=None):
+        self.id = make_id()
+        self.name = name
+        self.visible = True
+        if parent:
+            parent.add_child(self)
+        self.children = set()
+
+    def add_child(self, tag):
+        tag.parent = self
+        self.children.add(tag)
+
+    def remove_child(self, tag):
+        tag.parent = None
+        self.children.remove(tag)
+    
+    def objects(self):
+        pass
+
+
 classes = collection()
 objects = collection_map()
 relations = collection()
@@ -214,6 +236,14 @@ def make_object(class_id, *values):
     objects.append(object)
     klass.add_listener("class_changed", object._class_changed)
     return object.id
+
+def object_has_tag(object_id, tag_id):
+    object = get_object(object_id)
+    return tag_id in object.tags
+
+def object_add_tag(object_id, tag_id):
+    object = get_object(object_id)
+    object.tags.add(tag_id)
 
 def get_objects_by_class(class_id):
     return objects.by_class(class_id)

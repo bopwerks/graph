@@ -7,7 +7,7 @@ import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QTreeView
 
 selectedNode = None
 selectedEdge = None
@@ -754,6 +754,11 @@ class QMainWindow(QtWidgets.QMainWindow):
         # self._editor = QtWidgets.QDockWidget("Edit Object")
         # self._editor.setWidget(editor)
 
+        self._tagmodel = QTagModel()
+        self._tagview = QTagView(self._tagmodel)
+        self._tagdock = QtWidgets.QDockWidget("Tags")
+        self._tagdock.setWidget(self._tagview)
+
         self._list = QtWidgets.QDockWidget("Objects")
         identity = model.eq(model.field("Innodes"), model.const(0))
         nodelist = QObjectFilter(model.objects, identity)
@@ -771,6 +776,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._list)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._tagdock)
 
         #self._toolbar = self.addToolBar("Task")
         #self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
@@ -857,3 +863,113 @@ class QNodeEditor(QtWidgets.QFrame):
     def _onImptChange(self, state):
         if self._node:
             self._node.setImportant(bool(state))
+
+def make_tree(key, *children):
+    parent = {"key": key, "children": children, "parent": None}
+    for child in children:
+        child["parent"] = parent
+    return parent
+
+def assign_indices(tree, row=0):
+    tree['row'] = row
+    tree['col'] = 0
+    row = 0
+    for child in tree['children']:
+        assign_indices(child, row)
+        row += 1
+    return tree
+
+class QTagModel(QtCore.QAbstractItemModel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._root = assign_indices(make_tree("Engle",
+            make_tree("David"),
+            make_tree("Jana"),
+            make_tree("Tara",
+                make_tree("Ora"),
+                make_tree("Daley")
+            ),
+            make_tree("Bri",
+                make_tree("Mavrik")
+            )
+        ))
+    
+    def index(self, row, col, parent):
+
+        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
+        # print("QTagModel::index({0}, {1}, {2})".format(row, col, idx), end='')
+        #print("QTagModel::index({0}, {1}, ({2}, {3}))".format(row, col, parent.row(), parent.internalPointer()))
+        if not self.hasIndex(row, col, parent):
+            #rval = self.createIndex(0, 0, self._root)
+            rval = QtCore.QModelIndex()
+        else:
+            parent_item = None
+            if not parent.isValid():
+                parent_item = self._root
+            else:
+                parent_item = parent.internalPointer()
+            
+            child_item = parent_item['children'][row]
+            if child_item:
+                rval = self.createIndex(row, col, child_item)
+            else:
+                rval = QtCore.QModelIndex()
+        # print(" -> {0}".format(rval))
+        return rval
+
+    def parent(self, index):
+        # idx = (index.row(), index.internalPointer()['key']) if index.isValid() else 'invalid'
+        # print("QTagModel::parent({0})".format(idx), end='')
+        #print("QTagModel::parent(({0}, {1}))".format(index.row(), index.internalPointer()))
+        if not index.isValid():
+            rval = self.createIndex(self._root['row'], 0, self._root)
+        else:
+            child_item = index.internalPointer()
+            parent_item = child_item['parent']
+
+            # if not parent_item or parent_item is self._root:
+            if not parent_item:
+                rval = QtCore.QModelIndex()
+            # elif parent_item is self._root:
+            #     rval = self.createIndex(self._roo)
+            else:
+                rval = self.createIndex(parent_item['row'], 0, parent_item)
+        # print(" -> {0}".format(rval))
+        return rval
+    
+    def rowCount(self, parent):
+        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
+        # print("QTagModel::rowCount({0})".format(idx), end='')
+        #print("QTagModel::rowCount(({0}, {1}))".format(parent.row(), parent.internalPointer()))
+        if not parent.isValid():
+            rval = len(self._root['children'])
+        else:
+            parent_item = parent.internalPointer()
+            rval = len(parent_item['children'])
+        # print(" -> {0}".format(rval))
+        return rval
+    
+    def columnCount(self, parent):
+        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
+        # print("QTagModel::columnCount({0}) -> 1".format(idx))
+        #print("QTagModel::columnCount(({0}, {1}))".format(parent.row(), parent.internalPointer()))
+        return 1
+    
+    def data(self, index, role):
+        # idx = (index.row(), index.internalPointer()['key']) if index.isValid() else 'invalid'
+        # print("QTagModel::data({0}, {1})".format(idx, role), end='')
+        #print("QTagModel::data(({0}, {1}))".format(index.row(), index.internalPointer()))
+        if role != QtCore.Qt.ItemDataRole.DisplayRole:
+            rval = QtCore.QVariant()
+        elif not index.isValid():
+            rval = self._root['key']
+        else:
+            rval = index.internalPointer()['key']
+        # print(" -> {0}".format(rval))
+        #assert str(rval) != '1'
+        return rval
+
+class QTagView(QTreeView):
+    def __init__(self, model):
+        super().__init__()
+        self.setModel(model)
