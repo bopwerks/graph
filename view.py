@@ -865,7 +865,7 @@ class QNodeEditor(QtWidgets.QFrame):
             self._node.setImportant(bool(state))
 
 def make_tree(key, *children):
-    parent = {"key": key, "children": children, "parent": None}
+    parent = {"key": key, "children": children, "visible": True, "parent": None}
     for child in children:
         child["parent"] = parent
     return parent
@@ -893,9 +893,19 @@ class QTagModel(QtCore.QAbstractItemModel):
                 make_tree("Mavrik")
             )
         ))
+        #assert self.setHeaderData(1, 1, "Hello")
+    
+    def headerData(self, section, orientation, role):
+        #return super().headerData(section, orientation, role)
+        if role != QtCore.Qt.ItemDataRole.DisplayRole:
+            return QtCore.QVariant()
+        headers = {
+            0: "Tag",
+            1: "Visible",
+        }
+        return QtCore.QVariant(headers.get(section, "No Header"))
     
     def index(self, row, col, parent):
-
         # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
         # print("QTagModel::index({0}, {1}, {2})".format(row, col, idx), end='')
         #print("QTagModel::index({0}, {1}, ({2}, {3}))".format(row, col, parent.row(), parent.internalPointer()))
@@ -950,24 +960,37 @@ class QTagModel(QtCore.QAbstractItemModel):
         return rval
     
     def columnCount(self, parent):
-        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
-        # print("QTagModel::columnCount({0}) -> 1".format(idx))
-        #print("QTagModel::columnCount(({0}, {1}))".format(parent.row(), parent.internalPointer()))
-        return 1
+        return 2
     
     def data(self, index, role):
-        # idx = (index.row(), index.internalPointer()['key']) if index.isValid() else 'invalid'
-        # print("QTagModel::data({0}, {1})".format(idx, role), end='')
-        #print("QTagModel::data(({0}, {1}))".format(index.row(), index.internalPointer()))
-        if role != QtCore.Qt.ItemDataRole.DisplayRole:
+        if not index.isValid():
+            rval = QtCore.QVariant()
+        elif role == QtCore.Qt.ItemDataRole.CheckStateRole and index.column() == 1:
+            item = index.internalPointer()
+            rval = QtCore.Qt.Checked if item['visible'] else QtCore.Qt.Unchecked
+        elif role != QtCore.Qt.ItemDataRole.DisplayRole:
             rval = QtCore.QVariant()
         elif not index.isValid():
             rval = self._root['key']
-        else:
+        elif index.column() == 0:
             rval = index.internalPointer()['key']
-        # print(" -> {0}".format(rval))
-        #assert str(rval) != '1'
+        else:
+            rval = QtCore.QVariant()
         return rval
+    
+    def setData(self, index, value, role):
+        if role == QtCore.Qt.ItemDataRole.CheckStateRole and index.column() == 1:
+            item = index.internalPointer()
+            item['visible'] = True if value == QtCore.Qt.Checked else False
+            return True
+
+    def flags(self, index):
+        if not index.isValid():
+            return 0
+        flags = QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 1:
+            flags |= QtCore.Qt.ItemFlag.ItemIsUserCheckable
+        return flags
 
 class QTagView(QTreeView):
     def __init__(self, model):
