@@ -16,17 +16,17 @@ editor = None
 nodelist = None
 
 no_selected_item = None
-selected_item = no_selected_item
+__selected_item = no_selected_item
 def get_selected_item():
-    global selected_item
-    return selected_item
+    global __selected_item
+    return __selected_item
 
 def set_selected_item(item):
-    selected_item = get_selected_item()
-    if selected_item and selected_item is not item:
-        selected_item.unselect()
-    selected_item = item
-    if item is not no_selected_item:
+    global __selected_item
+    if __selected_item and __selected_item is not item:
+        __selected_item.unselect()
+    __selected_item = item
+    if item:
         item.select()
 
 no_active_relation = 0
@@ -491,6 +491,7 @@ class QNodeView(QtWidgets.QGraphicsView):
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
+        selected_item = get_selected_item()
         if not self.itemAt(event.pos()) and selected_item:
             set_selected_item(no_selected_item)
 
