@@ -1,7 +1,23 @@
 # Todo App Todos
 
 ## Todo
-* Add tags tree -- needs to be special structure to allow visibility of individual tags to be toggled
+* Add tags tree
+  - have a normal class called "Tag"
+  - allow classes to have Controls in addition to Fields
+    - Controls might include checkboxes, buttons, listboxes, etc.
+    - Controls can have code event handlers attached to them to do stuff
+  - add widget to display relations in list or tree form depending on limitations of relation
+    - widget displays controls of objects the relation relates
+  - add relation that forms trees (e.g. "is a parent of")
+    - e.g. "is a child of"
+    - one parent/innodes
+    - zero or more children/outnodes
+    - directed
+  - add checkbox control to Tag class whose code hides all objects tagged with that tag
+    - code finds all objects with a path between them and the tag
+    - calls (push-visibility target-object-id tag-id) to hide the object (object may already be hidden)
+    - calls (pop-visibility target-object-id tag-id) to unhide the object (won't necessarily make it visible)
+* Export graph to graphviz
 * Add Image field to objects to customize image
 * Fix arrow drawing between relations
 * Add a tree view that shows goal structure and the actionable items under them

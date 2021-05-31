@@ -8,45 +8,84 @@ def make_id():
     return _id
 
 class Relation(event.Emitter):
-    def __init__(self, name, color=None, symmetric=False, transitive=True):
+    def __init__(self, name, color=None, directed=True, max_innodes=-1, max_outnodes=-1):
         super().__init__()
         self.id = make_id()
         self.name = name
         self.color = color
-        self.symmetric = symmetric
-        self.transitive = transitive
-        self._max_innodes = -1
-        self._max_outnodes = -1
+        self.directed = directed
+        self._max_innodes = max_innodes
+        self._max_outnodes = max_outnodes
         self.visible = True
+        self.reverse = False
         self._innodes = {}
         self._outnodes = {}
-
-    def path(self, srcid, dstid):
-        # TODO: Find a path from srcid to dstid
-        pass
+        self._forest = []
 
     def connect(self, srcid, dstid):
-        if srcid not in self._outnodes:
-            self._outnodes[srcid] = set()
+        if not self._connect(srcid, dstid):
+            return False
+        if not self.directed:
+            if not self._connect(dstid, srcid):
+                self._disconnect(srcid, dstid)
+                return False
+        
+        self._update_forest(srcid)
+        self._update_forest(dstid)
+        return True
+    
+    def _update_forest(self, id):
+        nodes = self.innodes if self.reverse else self.outnodes
+        if len(nodes(id)) == 0:
+            self._forest.append(id)
+        elif id in self._forest:
+            self._forest.remove(id)
+    
+    def innodes(self, id):
+        return self._innodes.get(id, set()).copy()
+    
+    def outnodes(self, id):
+        return self._outnodes.get(id, set()).copy()
+    
+    def disconnect(self, srcid, dstid):
+        self._disconnect(srcid, dstid)
+        if not self.directed:
+            self._disconnect(dstid, srcid)
+        self._update_forest(srcid)
+        self._update_forest(dstid)
+    
+    def roots(self):
+        return list(self._forest)
+    
+    def is_tree(self):
+        return self.directed and self._max_innodes > 1 and self._max_outnodes == 1
+
+    def _connect(self, srcid, dstid):
+        outnodes = self._outnodes.get(srcid, [])
+        innodes = self._innodes.get(dstid, [])
+        if len(outnodes) == self._max_outnodes and len(innodes) == self._max_innodes:
+            return False
+        
         source_object = get_object(srcid)
         source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
-        self._outnodes[srcid].add(dstid)
+        outnodes.append(dstid)
+        self._outnodes[srcid] = outnodes
         
-        if dstid not in self._innodes:
-            self._innodes[dstid] = set()
         dest_object = get_object(dstid)
         dest_object.set_field("Innodes", dest_object.get_field("Innodes") + 1)
-        self._innodes[dstid].add(srcid)
+        innodes.append(srcid)
+        self._innodes[dstid] = innodes
 
         # TODO: Restrict the relation to certain types of objects.
         return True
 
-    def disconnect(self, srcid, dstid):
+    def _disconnect(self, srcid, dstid):
         self._outnodes[srcid].remove(dstid)
         if not self._outnodes[srcid]:
             del self._outnodes[srcid]
         source_object = get_object(srcid)
         source_object.set_field("Outnodes", source_object.get_field("Outnodes") - 1)
+
         self._innodes[dstid].remove(srcid)
         if not self._innodes[dstid]:
             del self._innodes[dstid]
@@ -69,9 +108,41 @@ class Field(object):
         self.name = name
         self.type = type
         self.initial_value = initial_value
+    
+    def is_valid(self, value):
+        return self.type == type(value)
 
     def __repr__(self):
         return "Field({0}, {1}, {2})".format(repr(self.name), repr(self.type), repr(self.initial_value))
+
+class Integer(Field):
+    def __init__(self, name, initial_value):
+        super().__init__(name, int, initial_value)
+    
+    def is_valid(self, value):
+        return type(value) == int
+
+class Float(Field):
+    def __init__(self, name, initial_value):
+        super().__init__(name, float, initial_value)
+    
+    def is_valid(self, value):
+        return type(value) == float
+
+class String(Field):
+    def __init__(self, name, initial_value):
+        super().__init__(name, str, initial_value)
+
+def noop():
+    pass
+class Control(object):
+    def __init__(self, name):
+        self.name = name
+        self.code = code
+
+class CheckBox(Control):
+    def __init__(self, name, checked=False):
+        super().__init__(name)
 
 class Class(event.Emitter):
     def __init__(self, name, *fields):
@@ -89,6 +160,12 @@ class Class(event.Emitter):
         return "Class({0})".format(repr(self.name))
         # return "Class({0}, {1})".format(repr(self.name), ', '.join(map(repr, self.fields))) 
 
+def is_field(f):
+    return issubclass(type(f), Field)
+
+def is_control(f):
+    return issubclass(type(f), Control)
+
 class Object(event.Emitter):
     def __init__(self, klass, *values):
         super().__init__()
@@ -101,7 +178,7 @@ class Object(event.Emitter):
                 self.fields.append(field.initial_value)
             else:
                 value = values[i]
-                assert type(value) == field.type, "Expected {0}, got {1}".format(field.type, type(value))
+                assert field.is_valid(value), "Expected {0}, got {1}".format(field.type, type(value))
                 self.fields.append(value)
 
     def __repr__(self):
@@ -119,7 +196,10 @@ class Object(event.Emitter):
             if field.name == name:
                 # TODO: Type-check value
                 self.fields[i] = value
-                self.emit("object_changed", self.id)
+                if is_control(field):
+                    self.fields[i].code(value)
+                elif is_field(field):
+                    self.emit("object_changed", self.id)
     
     def _class_changed(self, class_id):
         # TODO: Update fields
@@ -143,6 +223,12 @@ class collection(list, event.Emitter):
     
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
+    
+    def get_member(self, member_id):
+        for member in self:
+            if member.id == member_id:
+                return member
+        assert False, "No such member"
 
 def _iter_objects(object_sets):
     for object_set in object_sets:
@@ -177,27 +263,9 @@ class collection_map(event.Emitter):
 
     def __iter__(self):
         return _iter_objects(self._objects.values())
-
-class Tag(object):
-    def __init__(self, name, parent=None):
-        self.id = make_id()
-        self.name = name
-        self.visible = True
-        if parent:
-            parent.add_child(self)
-        self.children = set()
-
-    def add_child(self, tag):
-        tag.parent = self
-        self.children.add(tag)
-
-    def remove_child(self, tag):
-        tag.parent = None
-        self.children.remove(tag)
     
-    def objects(self):
-        pass
-
+    def get_member(self, member_id):
+        return get_object(member_id)
 
 classes = collection()
 objects = collection_map()
@@ -237,14 +305,6 @@ def make_object(class_id, *values):
     klass.add_listener("class_changed", object._class_changed)
     return object.id
 
-def object_has_tag(object_id, tag_id):
-    object = get_object(object_id)
-    return tag_id in object.tags
-
-def object_add_tag(object_id, tag_id):
-    object = get_object(object_id)
-    object.tags.add(tag_id)
-
 def get_objects_by_class(class_id):
     return objects.by_class(class_id)
 
@@ -258,8 +318,8 @@ def delete_object(object_id):
     klass.remove_listener("class_changed", object._class_changed)
     objects.remove(get_object(object_id))
 
-def make_relation(name):
-    relation = Relation(name)
+def make_relation(name, kolor=None):
+    relation = Relation(name, kolor if kolor else color.random())
     relations.append(relation)
     return relation.id
 
@@ -290,13 +350,20 @@ class color(object):
         rand = lambda: random.randint(0, 255)
         return color(rand(), rand(), rand())
 
-goal_class = make_class("Goal")
+def class_id(id):
+    return id
+
+tag_class = make_class("Tag")
+
+goal_class = make_class(
+    "Goal",
+)
 # goal1 = make_object(goal_class, "Be healthy")
 
 task_class = make_class(
     "Task",
     Field("Urgent", bool, False),
-    Field("Important", bool, False)
+    Field("Important", bool, False),
 )
 # task1 = make_object(task_class, "Exercise")
 precedes = make_relation("precedes")

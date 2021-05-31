@@ -9,76 +9,33 @@ from PyQt5 import QtWidgets
 from PyQt5 import QtGui
 from PyQt5.QtWidgets import QApplication, QTreeView
 
+zvalue_max = 0.0
+zvalue_increment = 1.0
 selectedNode = None
 selectedEdge = None
-selectedRelation = None
 newedge = None
 editor = None
 nodelist = None
 
+no_active_relation = 0
+active_relation = no_active_relation
+def set_active_relation(relation_id):
+    global active_relation
+    active_relation = relation_id
+
+def get_active_relation():
+    return active_relation
+
+def is_relation_active():
+    return active_relation > 0
+
 # maps a relation ID to a Relation
-relations = {
-    1: model.Relation("happens before"),
-    2: model.Relation("is older than"),
-}
 nodeid = 0
 nodes = {} # maps node IDs to Node objects
-
-def relation_connect(rel, srcid, dstid):
-    assert srcid in nodes
-    assert dstid in nodes
-
-    nodes[srcid].addOutnode()
-    nodes[dstid].addInnode()
-    rel.connect(srcid, dstid)
-
-def relation_disconnect(rel, srcid, dstid):
-    assert srcid in nodes
-    assert dstid in nodes
-
-    nodes[srcid].removeOutnode()
-    nodes[dstid].removeInnode()
-    rel.disconnect(srcid, dstid)
-
-def getRelations():
-    global relations
-    return [v for k, v in relations.items()]
 
 qnodes = {} # maps node IDs to QNode objects
 qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
 
-def selectRelation(relation):
-    assert relid in relations
-    global selectedRelation
-    selectedRelation = relid
-
-def getState():
-    state = {
-        "nodeid": nodeid,
-        "outnodes": outnodes,
-        "innodes": innodes
-    }
-    state["nodes"] = {}
-    for id, node in nodes.items():
-        state["nodes"][id] = {
-            "title": node.title(),
-            "urgent": node.urgent(),
-            "important": node.important(),
-            "x": qnodes[id].x(),
-            "y": qnodes[id].y()
-        }
-    return state
-
-def saveState(path, state):
-    assert path
-    assert state
-    with open(path, "w") as fp:
-        fp.write(repr(state))
-
-def loadState(path):
-    assert path
-    with open(path, "r") as fp:
-        return eval(fp.read())
 
 def nodeFromQNode(gnode):
     return nodes[gnode.id]
@@ -104,24 +61,28 @@ def angle(dx, dy):
     return theta
 
 class QArrow(QtWidgets.QGraphicsItemGroup):
-    def __init__(self, relation, radius=20, angle=math.pi/6):
+    def __init__(self, relation_id, radius=20, angle=math.pi/6):
         QtWidgets.QGraphicsItemGroup.__init__(self)
-        self._relation = relation
+        self._relation = relation_id
         self._radius = radius
         self._angle = angle
-        
+
+        relation = model.get_relation(relation_id)
+        color = relation.color
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke.setColor(self._relation.color)
+        stroke_color = QtGui.QColor(color.r, color.g, color.b)
+        #palette.setColor(self.backgroundRole(), bgcolor)
+        stroke.setColor(stroke_color)
         thickpen = QtGui.QPen(stroke, 2)
         thinpen = QtGui.QPen(stroke, 1)
-        
+
         self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._line.setPen(thinpen)
         self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow1.setPen(thickpen)
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
         self._arrow2.setPen(thickpen)
-        
+
         self.addToGroup(self._line)
         self.addToGroup(self._arrow1)
         self.addToGroup(self._arrow2)
@@ -135,18 +96,18 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         y2 = line.y2()
 
         self._line.setLine(x1, y1, x2, y2)
-        
+
         dx = x2 - x1
         dy = y2 - y1
         if not distance(dx, dy):
             return
-        
+
         theta = angle(dx, dy)
         atheta = math.pi + theta - self._angle/2
         ax = x2 + self._radius * math.cos(atheta)
         ay = y2 + self._radius * math.sin(atheta)
         self._arrow1.setLine(x2, y2, ax, ay)
-        
+
         btheta = math.pi + theta + self._angle/2
         bx = x2 + self._radius * math.cos(btheta)
         by = y2 + self._radius * math.sin(btheta)
@@ -154,7 +115,7 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
 
     def line(self):
         return self._line.line()
-    
+
     def setLine(self, x1, y1, x2, y2):
         self._line.setLine(x1, y1, x2, y2)
         self._updateLines()
@@ -165,8 +126,8 @@ class QEdge(QArrow):
         self._relation = relation
         self._origin = origin
         self._dest = dest
-        self._origin.add_listener(self._onNodeUpdate)
-        self._dest.add_listener(self._onNodeUpdate)
+        self._origin.add_listener("graphical_object_changed", self._onNodeUpdate)
+        self._dest.add_listener("graphical_object_changed", self._onNodeUpdate)
         self._setArrows()
 
     def _setArrows(self):
@@ -210,7 +171,7 @@ class QEdge(QArrow):
         global selectedEdge
         global selectedNode
         global editor
-        
+
         button = event.button()
         mouse = event.pos()
         pos = self.scenePos()
@@ -219,7 +180,7 @@ class QEdge(QArrow):
         if button != QtCore.Qt.LeftButton:
             event.ignore()
             return
-            
+
         if selectedEdge is self:
             #self._unhighlight()
             selectedEdge = None
@@ -229,17 +190,10 @@ class QEdge(QArrow):
             #self._highlight()
             selectedEdge = self
 
-        super().mousePressEvent(event)
-
-class QObjectFilter(QtWidgets.QTableWidget):
+class QCollectionFilter(QtWidgets.QTableWidget):
     def __init__(self, collection, predicate):
-        super().__init__(0, 2)
-        header_class = QtWidgets.QTableWidgetItem("Class")
-        header_class.setTextAlignment(QtCore.Qt.AlignLeft)
-        self.setHorizontalHeaderItem(0, header_class)
-        header_title = QtWidgets.QTableWidgetItem("Title")
-        header_title.setTextAlignment(QtCore.Qt.AlignLeft)
-        self.setHorizontalHeaderItem(1, header_title)
+        #super().__init__(0, 2)
+        super().__init__()
 
         self._predicate = predicate
         self._collection = collection
@@ -251,37 +205,25 @@ class QObjectFilter(QtWidgets.QTableWidget):
         for object in collection:
             self._object_created(object.id)
 
-        self.cellChanged.connect(self._cellChanged)
-
-    def _cellChanged(self, row, col):
-        object_id = self._matches_list[row]
-        object = model.get_object(object_id)
-        item = self.item(row, col)
-        object.set_field("Title", item.text())
-    
     def closeEvent(self, event):
         self._collection.remove_listener("object_created", self._object_created)
         self._collection.remove_listener("object_deleted", self._object_deleted)
         self._collection.remove_listener("object_changed", self._object_changed)
-    
+
     def _object_created(self, object_id):
-        object = model.get_object(object_id)
+        object = self._collection.get_member(object_id)
         if self._predicate(object):
             # Add the object to the widget
             self._matches_list.append(object_id)
             self._matches.add(object_id)
-            class_name = object.klass.name
-            object_title = object.get_field("Title")
-
             nrows = len(self._matches_list)
             row = nrows - 1
             self.setRowCount(nrows)
-            class_item = QtWidgets.QTableWidgetItem(class_name)
-            class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-            self.setItem(row, 0, class_item)
-            object_item = QtWidgets.QTableWidgetItem(object_title)
-            self.setItem(row, 1, object_item)
-    
+            self.member_added(object, row)
+
+    def member_added(self, member, row):
+        pass
+
     def _object_deleted(self, object_id):
         if object_id in self._matches:
             # Remove the object from the widget
@@ -301,60 +243,41 @@ class QObjectFilter(QtWidgets.QTableWidget):
         else:
             self._object_deleted(object_id)
 
-class QRelationList(QtWidgets.QListWidget):
-    def __init__(self):
-        super().__init__()
-        self._relations = []
-        self.clicked.connect(self._onClicked)
+class QObjectFilter(QCollectionFilter):
+    def __init__(self, collection, predicate):
+        super().__init__(collection, predicate)
+        self.setColumnCount(2)
+        header_class = QtWidgets.QTableWidgetItem("Class")
+        header_class.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(0, header_class)
+        header_title = QtWidgets.QTableWidgetItem("Title")
+        header_title.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(1, header_title)
+        self.cellChanged.connect(self._cellChanged)
 
-    def _setRelationVisibility(self, relation, isvisible):
-            global qedges
-            for key, qedge in qedges.items():
-                rel = key[2]
-                if rel is relation:
-                    qedge.setVisible(isvisible)
+    def member_added(self, member, row):
+        class_name = member.klass.name
+        object_title = member.get_field("Title")
+        class_item = QtWidgets.QTableWidgetItem(class_name)
+        class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+        self.setItem(row, 0, class_item)
+        object_item = QtWidgets.QTableWidgetItem(object_title)
+        self.setItem(row, 1, object_item)
 
-    def _onClicked(self, index):
-        assert index
-        global selectedRelation
-        row = index.row()
-        selectedRelation = self._relations[row]
-        isvisible = selectedRelation.visible
-        chosenVisibility = self.item(row).checkState() == QtCore.Qt.Checked
-        if isvisible != chosenVisibility:
-            selectedRelation.visible = chosenVisibility
-            self._setRelationVisibility(selectedRelation, chosenVisibility)
-
-    def length(self):
-        return len(self._relations)
-
-    def _updateList(self):
-        self.clear()
-        for relation in self._relations:
-            item = QtWidgets.QListWidgetItem(relation.name, self)
-            item.setCheckState(QtCore.Qt.Checked if relation.visible else QtCore.Qt.Unchecked)
-            self.addItem(item)
-
-    def add(self, rel):
-        assert rel
-        # rel.add_listener(self)
-        self._relations.append(rel)
-        self._updateList()
-
-    def remove(self, rel):
-        assert rel
-        assert rel in self._relation
-        # rel.remove_listener(self)
-        self._relations.remove(rel)
-        self._updateList()
-
-    def onNodeUpdate(self, node):
-        self._updateList()
+    def _cellChanged(self, row, col):
+        object_id = self._matches_list[row]
+        object = model.get_object(object_id)
+        item = self.item(row, col)
+        object.set_field("Title", item.text())
 
 class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
     def __init__(self, widget):
         QtWidgets.QGraphicsProxyWidget.__init__(self)
+        event.Emitter.__init__(self)
         self.setWidget(widget)
+        self._movedp = False
+        self._dx = 0
+        self._dy = 0
         self._movedp = False
 
     def x(self):
@@ -367,79 +290,60 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         self.setPos(x, y)
         self.emit()
 
-    def _connect(self, relation, srcQNode, dstQNode):
+    def _connect(self, relation_id, srcQNode, dstQNode):
         global newedge
         global qedges
 
-        assert relation
+        assert relation_id
         assert srcQNode
         assert dstQNode
-        
-        model.relation_connect(relation, srcQNode.id, dstQNode.id)
 
-        qedge = QEdge.fromArrow(relation, newedge, srcQNode, dstQNode)
+        model.connect(relation_id, srcQNode.id, dstQNode.id)
+
+        qedge = QEdge.fromArrow(relation_id, newedge, srcQNode, dstQNode)
+        relation = model.get_relation(relation_id)
         qedge.setVisible(relation.visible)
-        qedges[(srcQNode.id, dstQNode.id, relation)] = qedge
+        qedges[(srcQNode.id, dstQNode.id, relation_id)] = qedge
         self.scene().addItem(qedge)
 
     def _getTarget(self, event):
         nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNodeProxy)]
         return nodes[0] if nodes else None
-        
+
     def mousePressEvent(self, event):
         global selectedEdge
-        global selectedRelation
         global editor
-        
+
         button = event.button()
         mouse = event.pos()
         pos = self.scenePos()
         scene = event.scenePos()
-        
+
         if selectedEdge:
             selectedEdge._unhighlight()
             selectedEdge = None
-        
-        if button == QtCore.Qt.RightButton:
-            global newedge
-            assert not newedge
-            newedge = QArrow(selectedRelation, angle=math.pi/6, radius=20)
-            x1 = self.pos().x() + 50
-            y1 = self.pos().y() + 50
-            dx = scene.x() - x1
-            dy = scene.y() - y1
-            r = distance(dx, dy)
-            if r:
-                theta = angle(dx, dy)
-                x1 += 50 * math.cos(theta)
-                y1 += 50 * math.sin(theta)
-            newedge.setLine(x1, y1, scene.x(), scene.y())
-            self.scene().addItem(newedge)
-        elif button == QtCore.Qt.LeftButton:
-            #editor.setNode(nodeFromQNode(self))
-            if selectedNode is not self:
-                if selectedNode:
-                    qnode = qnodeFromNode(selectedNode.widget())
-                    #qnode._unhighlight()
-                #self._highlight()
+
+        if button == QtCore.Qt.LeftButton:
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
+        elif button == QtCore.Qt.RightButton and is_relation_active():
+            global newedge
+            newedge = QArrow(get_active_relation())
 
         # Tell containing scene that we're handling this mouse event
         # so we don't initiate a canvas drag.
         event.accept()
 
-    def mouseReleaseEvent(self, event):      
+    def mouseReleaseEvent(self, event):
         global newedge
         global editor
         global selectedNode
-        global selectedRelation
-        
+
         if newedge:
             target = self._getTarget(event)
             self.scene().removeItem(newedge)
             if target and target is not self: # hovering over another node
-                self._connect(selectedRelation, self.widget(), target.widget())
+                self._connect(get_active_relation(), self.widget(), target.widget())
             newedge = None
         elif not self._movedp:
             if selectedNode is self:
@@ -453,16 +357,16 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         else:
             selectedNode = self
             #editor.setNode(nodeFromQNode(self))
-            
+
         self._movedp = False
         event.accept()
 
     def mouseMoveEvent(self, event):
         global destNode
         global newedge
-        
+
         self._movedp = True
-        
+
         scene = event.scenePos()
         mouse = event.pos()
         pos = self.scenePos()
@@ -485,13 +389,10 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
             self.emit("graphical_object_changed", self)
         event.accept()
 
-    def _highlighted():
-        return self._highlightedp
-
     def _object_changed(self, object_id):
         object = model.get_object(object_id)
         self.setVisible(object.get_field("Visible"))
-    
+
 class QNodeWidget(QtWidgets.QFrame, event.Emitter):
     def __init__(self, id):
         QtWidgets.QFrame.__init__(self)
@@ -521,11 +422,6 @@ class QNodeWidget(QtWidgets.QFrame, event.Emitter):
         self._text.setWordWrap(True)
         self._layout.addWidget(self._text)
         self.onNodeUpdate(id)
-        
-        #self._dx = 0
-        #self._dy = 0
-        #self._movedp = False
-        #self.setPos(0, 0)
 
     def onNodeUpdate(self, object_id):
         object = model.get_object(object_id)
@@ -592,13 +488,12 @@ class QNodeView(QtWidgets.QGraphicsView):
 
         # Allow the user to delete the node immediately after adding by pressing backspace
         self.setFocus()
-    
+
     def keyPressEvent(self, event):
         global selectedEdge
-        global selectedRelation
         global qedges
         global nodelist
-        
+
         key = event.key()
         if key == QtCore.Qt.Key_Space:
             rect = self.scene().itemsBoundingRect()
@@ -621,7 +516,7 @@ class QNodeView(QtWidgets.QGraphicsView):
             # nodelist.remove(nodeFromQNode(selectedNode))
             self._selected_item.widget().setLineWidth(0)
             self._selected_item = None
-                
+
     def wheelEvent(self, event):
         point = event.angleDelta()
         dy = point.y()
@@ -634,8 +529,11 @@ class QNodeView(QtWidgets.QGraphicsView):
         super().mousePressEvent(event)
         item = self.itemAt(event.pos())
         if item:
+            global zvalue_max
+            zvalue_max = max(item.zValue(), zvalue_max) + zvalue_increment
+            item.setZValue(zvalue_max)
             item.widget().setLineWidth(2)
-            if self._selected_item:
+            if self._selected_item and self._selected_item is not item:
                 self._selected_item.widget().setLineWidth(0)
             self._selected_item = item
         elif self._selected_item:
@@ -668,51 +566,66 @@ class QNodeScene(QtWidgets.QGraphicsScene):
         self.removeItem(object)
         # TODO: Remove edges connected to the object
 
-class QNodePalette(QtWidgets.QListWidget):
+class QCollectionList(QtWidgets.QListWidget):
     def __init__(self, collection):
         QtWidgets.QListWidget.__init__(self)
-        self.setDragEnabled(True)
-        self.setDragDropMode(QtWidgets.QAbstractItemView.DragOnly)
         self._collection = collection
         self._collection.add_listener("object_created", self._object_created)
         self._collection.add_listener("object_deleted", self._object_deleted)
         self._collection.add_listener("object_changed", self._object_changed)
-        self._class_list = []
-        self._classes = set()
-        for klass in collection:
-            self._object_created(klass.id)
-        self.clicked.connect(self._onClicked)
+        for member in collection:
+            self._object_created(member.id)
+        self.clicked.connect(self._clicked)
 
-    def _onClicked(self, index):
-        row = index.row()
-        class_id = self._class_list[row]
-        klass = model.get_class(class_id)
-        is_visible = self.item(row).checkState() == QtCore.Qt.Checked
-        # klass.visible = is_visible
-        klass.set_visible(is_visible)
-        # for object in model.get_objects_by_class(class_id):
-        #     object.set_field("Visible", is_visible)
+    def members(self):
+        return list(map(
+            lambda row: self.item(row).data(QtCore.Qt.ItemDataRole.UserRole),
+            range(self.count())
+        ))
+
+    def _clicked(self, index):
+        item = self.item(index.row())
+        member_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        member = self._collection.get_member(member_id)
+        is_checked = item.checkState() == QtCore.Qt.Checked
+        self.member_clicked(member, is_checked)
+
+    def member_added(self, member):
+        pass
     
-    def _object_created(self, class_id):
-        self._class_list.append(class_id)
-        self._classes.add(class_id)
-        klass = model.get_class(class_id)
-        item = QtWidgets.QListWidgetItem(klass.name)
-        item.setCheckState(QtCore.Qt.Checked if klass.visible else QtCore.Qt.Unchecked)
+    def member_removed(self):
+        pass
+
+    def member_clicked(self, member, is_checked):
+        pass
+
+    def _object_created(self, member_id):
+        member = self._collection.get_member(member_id)
+        item = QtWidgets.QListWidgetItem(member.name)
+        item.setData(QtCore.Qt.ItemDataRole.UserRole, member_id)
+        item.setCheckState(QtCore.Qt.Checked if member.visible else QtCore.Qt.Unchecked)
         self.addItem(item)
+        self.setCurrentItem(item)
+        self.member_added(member)
+    
+    def _id_to_item(self, member_id):
+        item = list(filter(
+            lambda item: item.data(QtCore.Qt.ItemDataRole.UserRole) == member_id,
+            [self.item(row) for row in range(self.count())]
+        ))[0]
+        return item
 
-    def _object_deleted(self, class_id):
-        index = self._class_list.index(class_id)
-        self._class_list.remove(class_id)
-        self._classes.remove(class_id)
-        self.takeItem(index)
+    def _object_deleted(self, member_id):
+        item = self._id_to_item(member_id)
+        self._members.remove(member_id)
+        self.takeItem(item.row())
+        self.member_removed()
 
-    def _object_changed(self, class_id):
-        index = self._class_list.index(class_id)
-        item = self.itemAt(index)
-        klass = model.get_class(class_id)
-        item.setText(klass.name)
-            
+    def _object_changed(self, member_id):
+        item = self._id_to_item(member_id)
+        member = self._collection.get_member(member_id)
+        item.setText(member.name)
+
         # TODO: Implement drag and drop from this list to the graph
 
     def closeEvent(self, event):
@@ -720,14 +633,40 @@ class QNodePalette(QtWidgets.QListWidget):
         self._collection.remove_listener("object_deleted", self._object_deleted)
         self._collection.remove_listener("object_changed", self._object_changed)
 
+class QNodePalette(QCollectionList):
+    def __init__(self, collection):
+        super().__init__(collection)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QtWidgets.QAbstractItemView.DragOnly)
+
+    def member_clicked(self, member, is_checked):
+        member.set_visible(is_checked)
+
     def startDrag(self, supportedActions):
         item = self.currentItem()
         mime_data = QtCore.QMimeData()
-        class_id = self._class_list[self.currentRow()]
+        class_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
         mime_data.setText(str(class_id))
         drag = QtGui.QDrag(self)
         drag.setMimeData(mime_data)
         drag.exec()
+
+class QRelationList(QCollectionList):
+    def __init__(self, collection):
+        super().__init__(collection)
+        #self.clicked.connect(self._clicked)
+
+    def member_added(self, relation):
+        set_active_relation(relation.id)
+    
+    def member_removed(self):
+        remaining_members = self.members()
+        active_relation = remaining_members[0] if remaining_members else no_active_relation
+        set_active_relation(active_relation)
+
+    def member_clicked(self, relation, is_checked):
+        set_active_relation(relation.id)
+        # TODO: relation.set_visible(is_checked)
 
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
@@ -735,24 +674,13 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         global editor
         global nodelist
-        
+
         # set size to 70% of screen
-        self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
+        #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
 
         self._scene = QNodeScene(model.objects)
-        #self._scene.setSceneRect(0, 0, 100, 100)
-
-        # add the scene to the view
         self._view = QNodeView(self._scene)
-        # self._view.setSceneRect(0, 0, 500, 500)
-
-        # make the view the main widget of the window
         self.setCentralWidget(self._view)
-
-        # add a dock with a task editor
-        # editor = QNodeEditor()
-        # self._editor = QtWidgets.QDockWidget("Edit Object")
-        # self._editor.setWidget(editor)
 
         self._tagmodel = QTagModel()
         self._tagview = QTagView(self._tagmodel)
@@ -760,12 +688,13 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._tagdock.setWidget(self._tagview)
 
         self._list = QtWidgets.QDockWidget("Objects")
-        identity = model.eq(model.field("Innodes"), model.const(0))
-        nodelist = QObjectFilter(model.objects, identity)
+        show_actionable = model.eq(model.field("Innodes"), model.const(0))
+        nodelist = QObjectFilter(model.objects, show_actionable)
         self._list.setWidget(nodelist)
 
         self._relationList = QtWidgets.QDockWidget("Relations")
-        relationList = QRelationList()
+        show_all = lambda member: True
+        relationList = QRelationList(model.relations)
         self._relationList.setWidget(relationList)
 
         self.setWindowTitle(title)
@@ -786,19 +715,15 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         # add relation selector
         # relsel = QtWidgets.QComboBox()
-        for rel in getRelations():
-            relationList.add(rel)
-        if relationList.length() > 0:
-            relationList.setCurrentRow(0)
+        # for rel in getRelations():
+        #     relationList.add(rel)
+        # if relationList.length() > 0:
+        #     relationList.setCurrentRow(0)
         #     relsel.addItem(rel.name)
-        self._selectRelation(0)
+        # self._selectRelation(0)
         # self._relationList.setCurrentRow(0)
         # relsel.currentIndexChanged.connect(self._selectRelation)
         # self._toolbar.addWidget(relsel)
-
-    def _selectRelation(self, index):
-        global selectedRelation
-        selectedRelation = getRelations()[index]
 
     def _addButton(self, text, icontype, callback):
         assert self._toolbar
@@ -823,14 +748,14 @@ class QNodeEditor(QtWidgets.QFrame):
         self._layout.addRow("&Urgent", self._urgent)
         self._layout.addRow("&Important", self._important)
         self.setLayout(self._layout)
-        
+
         self._clear()
         self._setEnabled(False)
-        
+
         self._title.textChanged.connect(self._onTitleChange)
         self._urgent.stateChanged.connect(self._onUrgentChange)
         self._important.stateChanged.connect(self._onImptChange)
-        
+
     def setNode(self, node):
         self._node = node
         if not self._node:
@@ -865,24 +790,26 @@ class QNodeEditor(QtWidgets.QFrame):
             self._node.setImportant(bool(state))
 
 def make_tree(key, *children):
-    parent = {"key": key, "children": children, "visible": True, "parent": None}
+    parent = {
+        "key": key,
+        #"tag": model.make_tag(key),
+        "children": children,
+        "visible": True,
+        "parent": None,
+        "row": 0
+    }
+    row = 0
     for child in children:
         child["parent"] = parent
+        child["row"] = row
+        row += 1
     return parent
 
-def assign_indices(tree, row=0):
-    tree['row'] = row
-    tree['col'] = 0
-    row = 0
-    for child in tree['children']:
-        assign_indices(child, row)
-        row += 1
-    return tree
-
 class QTagModel(QtCore.QAbstractItemModel):
-    def __init__(self, parent=None):
+    def __init__(self, relation=None, parent=None):
         super().__init__(parent)
-        self._root = assign_indices(make_tree("Engle",
+        self._relation = relation
+        self._root = make_tree("Engle",
             make_tree("David"),
             make_tree("Jana"),
             make_tree("Tara",
@@ -892,11 +819,9 @@ class QTagModel(QtCore.QAbstractItemModel):
             make_tree("Bri",
                 make_tree("Mavrik")
             )
-        ))
-        #assert self.setHeaderData(1, 1, "Hello")
-    
+        )
+
     def headerData(self, section, orientation, role):
-        #return super().headerData(section, orientation, role)
         if role != QtCore.Qt.ItemDataRole.DisplayRole:
             return QtCore.QVariant()
         headers = {
@@ -904,13 +829,9 @@ class QTagModel(QtCore.QAbstractItemModel):
             1: "Visible",
         }
         return QtCore.QVariant(headers.get(section, "No Header"))
-    
+
     def index(self, row, col, parent):
-        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
-        # print("QTagModel::index({0}, {1}, {2})".format(row, col, idx), end='')
-        #print("QTagModel::index({0}, {1}, ({2}, {3}))".format(row, col, parent.row(), parent.internalPointer()))
         if not self.hasIndex(row, col, parent):
-            #rval = self.createIndex(0, 0, self._root)
             rval = QtCore.QModelIndex()
         else:
             parent_item = None
@@ -918,50 +839,37 @@ class QTagModel(QtCore.QAbstractItemModel):
                 parent_item = self._root
             else:
                 parent_item = parent.internalPointer()
-            
+
             child_item = parent_item['children'][row]
             if child_item:
                 rval = self.createIndex(row, col, child_item)
             else:
                 rval = QtCore.QModelIndex()
-        # print(" -> {0}".format(rval))
         return rval
 
     def parent(self, index):
-        # idx = (index.row(), index.internalPointer()['key']) if index.isValid() else 'invalid'
-        # print("QTagModel::parent({0})".format(idx), end='')
-        #print("QTagModel::parent(({0}, {1}))".format(index.row(), index.internalPointer()))
         if not index.isValid():
             rval = self.createIndex(self._root['row'], 0, self._root)
         else:
             child_item = index.internalPointer()
             parent_item = child_item['parent']
-
-            # if not parent_item or parent_item is self._root:
             if not parent_item:
                 rval = QtCore.QModelIndex()
-            # elif parent_item is self._root:
-            #     rval = self.createIndex(self._roo)
             else:
                 rval = self.createIndex(parent_item['row'], 0, parent_item)
-        # print(" -> {0}".format(rval))
         return rval
-    
+
     def rowCount(self, parent):
-        # idx = (parent.row(), parent.internalPointer()['key']) if parent.isValid() else 'invalid'
-        # print("QTagModel::rowCount({0})".format(idx), end='')
-        #print("QTagModel::rowCount(({0}, {1}))".format(parent.row(), parent.internalPointer()))
         if not parent.isValid():
             rval = len(self._root['children'])
         else:
             parent_item = parent.internalPointer()
             rval = len(parent_item['children'])
-        # print(" -> {0}".format(rval))
         return rval
-    
+
     def columnCount(self, parent):
         return 2
-    
+
     def data(self, index, role):
         if not index.isValid():
             rval = QtCore.QVariant()
@@ -977,7 +885,7 @@ class QTagModel(QtCore.QAbstractItemModel):
         else:
             rval = QtCore.QVariant()
         return rval
-    
+
     def setData(self, index, value, role):
         if role == QtCore.Qt.ItemDataRole.CheckStateRole and index.column() == 1:
             item = index.internalPointer()
