@@ -17,6 +17,17 @@ nodelist = None
 
 no_selected_item = None
 selected_item = no_selected_item
+def get_selected_item():
+    global selected_item
+    return selected_item
+
+def set_selected_item(item):
+    selected_item = get_selected_item()
+    if selected_item and selected_item is not item:
+        selected_item.unselect()
+    selected_item = item
+    if item is not no_selected_item:
+        item.select()
 
 no_active_relation = 0
 active_relation = no_active_relation
@@ -30,9 +41,6 @@ def get_active_relation():
 def is_relation_active():
     return active_relation > 0
 
-# maps a relation ID to a Relation
-nodeid = 0
-nodes = {} # maps node IDs to Node objects
 
 qnodes = {} # maps node IDs to QNode objects
 qedges = {} # maps (origin node id, destination node id, relation) to a QEdge
@@ -137,7 +145,6 @@ class QEdge(QArrow):
         self.setLine(start.x(), start.y(), end.x(), end.y())
 
     def select(self):
-        set_selected_item(self)
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
         relation = model.get_relation(self.id)
         color = relation.color
@@ -176,7 +183,7 @@ class QEdge(QArrow):
             event.ignore()
             return
 
-        self.select()
+        set_selected_item(self)
 
 class QCollectionFilter(QtWidgets.QTableWidget):
     def __init__(self, collection, predicate):
@@ -258,12 +265,6 @@ class QObjectFilter(QCollectionFilter):
         item = self.item(row, col)
         object.set_field("Title", item.text())
 
-def set_selected_item(item):
-    global selected_item
-    if selected_item and selected_item is not item:
-        selected_item.unselect()
-    selected_item = item
-
 def make_graphical_edge(relation_id, source_object_id, dest_object_id):
     source_grob = get_object(source_object_id)
     dest_grob = get_object(dest_object_id)
@@ -278,10 +279,8 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         QtWidgets.QGraphicsProxyWidget.__init__(self)
         event.Emitter.__init__(self)
         self.setWidget(widget)
-        self._movedp = False
         self._dx = 0
         self._dy = 0
-        self._movedp = False
 
     def x(self):
         return self.pos().x()
@@ -321,7 +320,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
 
     def select(self):
         self._focus()
-        set_selected_item(self)
         self.widget().setLineWidth(2)
     
     def unselect(self):
@@ -337,7 +335,7 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         scene = event.scenePos()
 
         if button == QtCore.Qt.LeftButton:
-            self.select()
+            set_selected_item(self)
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
         elif button == QtCore.Qt.RightButton and is_relation_active():
@@ -352,7 +350,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
     def mouseReleaseEvent(self, event):
         global newedge
         global editor
-        global selectedNode
 
         if newedge:
             target = self._getTarget(event)
@@ -360,27 +357,11 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
             if target and target is not self: # hovering over another node
                 self._connect(newedge, self, target)
             newedge = None
-        elif not self._movedp:
-            if selectedNode is self:
-                selectedNode = None
-                #editor.setNode(None)
-                #self._unhighlight()
-            else:
-                selectedNode = self
-               # editor.setNode(nodeFromQNode(self))
-                #self._highlight()
-        else:
-            selectedNode = self
-            #editor.setNode(nodeFromQNode(self))
 
-        self._movedp = False
         event.accept()
 
     def mouseMoveEvent(self, event):
-        global destNode
         global newedge
-
-        self._movedp = True
 
         scene = event.scenePos()
         mouse = event.pos()
@@ -480,7 +461,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         klass = model.get_class(class_id)
         object = make_object(class_id, "New {0}".format(klass.name))
         self.scene().addItem(object)
-        object.select()
+        set_selected_item(object)
 
         # Position the object so the cursor lies over its center
         position = self.mapToScene(event.pos())
@@ -491,12 +472,13 @@ class QNodeView(QtWidgets.QGraphicsView):
         self.setFocus()
 
     def keyPressEvent(self, event):
-        global selected_item
+        selected_item = get_selected_item()
         key = event.key()
         if key == QtCore.Qt.Key_Space:
             rect = self.scene().itemsBoundingRect()
             self.scene().setSceneRect(rect)
         elif selected_item and key in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            set_selected_item(no_selected_item)
             selected_item.delete()
 
     def wheelEvent(self, event):
@@ -506,6 +488,11 @@ class QNodeView(QtWidgets.QGraphicsView):
             self.scale(1.1, 1.1)
         elif dy < 0:
             self.scale(1/1.1, 1/1.1)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if not self.itemAt(event.pos()) and selected_item:
+            set_selected_item(no_selected_item)
 
 def make_graphical_object(object_id):
     qnode = QNodeWidget(object_id)
