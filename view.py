@@ -329,6 +329,7 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         elif button == QtCore.Qt.RightButton and is_relation_active():
             global newedge
             newedge = QArrow(get_active_relation())
+            self.scene().addItem(newedge)
 
         # Tell containing scene that we're handling this mouse event
         # so we don't initiate a canvas drag.
