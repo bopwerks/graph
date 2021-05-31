@@ -7,7 +7,7 @@ import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QTreeView
+from PyQt5.QtWidgets import QApplication, QMessageBox, QTreeView
 
 zvalue_max = 0.0
 zvalue_increment = 1.0
@@ -293,14 +293,10 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         global qedges
         source_widget = source_proxy.widget()
         dest_widget = dest_proxy.widget()
-
-        model.connect(newedge.id, source_widget.id, dest_widget.id)
-        #qedge = make_graphical_edge(newedge.id, source_widget.id, dest_widget.id)
-        # qedge = QEdge.fromArrow(newedge, source_proxy, dest_proxy)
-        # relation = model.get_relation(newedge.id)
-        # qedge.setVisible(relation.visible)
-        # qedges[(source_widget.id, dest_widget.id, newedge.id)] = qedge
-        #self.scene().addItem(qedge)
+        try:
+            model.connect(newedge.id, source_widget.id, dest_widget.id)
+        except model.RelationException as exception:
+            QMessageBox.critical(None, "Error", exception.args[0])
 
     def _getTarget(self, event):
         nodes = [n for n in self.scene().items(event.scenePos()) if isinstance(n, QNodeProxy)]

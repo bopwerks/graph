@@ -7,6 +7,10 @@ def make_id():
     _id += 1
     return _id
 
+class RelationException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
 class Relation(event.Emitter):
     def __init__(self, name, color=None, directed=True, acyclic=True, max_innodes=-1, max_outnodes=-1):
         super().__init__()
@@ -24,12 +28,13 @@ class Relation(event.Emitter):
         self._forest = []
 
     def connect(self, srcid, dstid, source):
-        if not self._connect(srcid, dstid):
-            return False
+        self._connect(srcid, dstid)
         if not self.directed:
-            if not self._connect(dstid, srcid):
+            try:
+                self._connect(dstid, srcid)
+            except RelationException as exception:
                 self._disconnect(srcid, dstid)
-                return False
+                raise exception
         
         self._update_forest(srcid)
         self._update_forest(dstid)
@@ -70,8 +75,32 @@ class Relation(event.Emitter):
     def _connect(self, srcid, dstid):
         outnodes = self._outnodes.get(srcid, [])
         innodes = self._innodes.get(dstid, [])
-        if len(outnodes) == self._max_outnodes and len(innodes) == self._max_innodes:
-            return False
+        if len(outnodes) == self._max_outnodes:
+            source_object = get_object(srcid).get_field("Title")
+            dest_object = get_object(dstid).get_field("Title")
+            raise RelationException(
+                "Can't connect {0} to {1} by {2}: Outnodes of source at maximum.".format(
+                    source_object, dest_object, self.name
+                )
+            )
+        
+        if len(innodes) == self._max_innodes:
+            source_object = get_object(srcid).get_field("Title")
+            dest_object = get_object(dstid).get_field("Title")
+            raise RelationException(
+                "Can't connect {0} to {1} by {2}: Innodes of destination at maximum.".format(
+                    source_object, dest_object, self.name
+                )
+            )
+        
+        if self.acyclic and has_path(dstid, srcid, self.id):
+            source_object = get_object(srcid).get_field("Title")
+            dest_object = get_object(dstid).get_field("Title")
+            raise RelationException(
+                "Can't connect {0} to {1} by {2}: Relation is acyclic.".format(
+                    source_object, dest_object, self.name
+                )
+            )
         
         source_object = get_object(srcid)
         source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
