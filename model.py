@@ -8,12 +8,13 @@ def make_id():
     return _id
 
 class Relation(event.Emitter):
-    def __init__(self, name, color=None, directed=True, max_innodes=-1, max_outnodes=-1):
+    def __init__(self, name, color=None, directed=True, acyclic=True, max_innodes=-1, max_outnodes=-1):
         super().__init__()
         self.id = make_id()
         self.name = name
         self.color = color
         self.directed = directed
+        self.acyclic = acyclic
         self._max_innodes = max_innodes
         self._max_outnodes = max_outnodes
         self.visible = True
@@ -47,6 +48,10 @@ class Relation(event.Emitter):
     
     def outnodes(self, id):
         return self._outnodes.get(id, set()).copy()
+    
+    def set_visible(self, is_visible):
+        self.visible = is_visible
+        self.emit("relation_changed", self.id)
     
     def disconnect(self, srcid, dstid):
         self._disconnect(srcid, dstid)
@@ -94,16 +99,21 @@ class Relation(event.Emitter):
         dest_object = get_object(dstid)
         dest_object.set_field("Innodes", dest_object.get_field("Innodes") - 1)
 
-    def clear(self):
-        # Decrement innodes and outnodes of all related objects
-        for outnodes in self._outnodes.values():
-            for outnode in outnodes:
-                outnode.set_field("Innodes", outnode.get_field("Innodes") - 1)
-        for innodes in self._innodes.values():
-            for innode in innodes:
+    def remove(self, id):
+        """Remove all relations into and out of the given object"""
+        assert id in self._innodes or id in self._outnodes
+        if id in self._innodes:
+            for innode_id in self._innodes[id]:
+                innode = get_object(innode_id)
                 innode.set_field("Outnodes", innode.get_field("Outnodes") - 1)
-        self._innodes = {}
-        self._outnodes = {}
+                self.emit("objects_disconnected", self.id, innode_id, id)
+            del self._innodes[id]
+        if id in self._outnodes:
+            for outnode_id in self._outnodes[id]:
+                outnode = get_object(outnode_id)
+                outnode.set_field("Innodes", outnode.get_field("Innodes") - 1)
+                self.emit("objects_disconnected", self.id, id, outnode_id)
+            del self._outnodes[id]
 
 class Field(object):
     def __init__(self, name, type, initial_value):
@@ -138,7 +148,7 @@ class String(Field):
 def noop():
     pass
 class Control(object):
-    def __init__(self, name):
+    def __init__(self, name, code=None):
         self.name = name
         self.code = code
 
@@ -219,11 +229,13 @@ class collection(list, event.Emitter):
         object.add_listener("object_changed", self._object_changed)
         object.add_listener("objects_connected", self._objects_connected)
         object.add_listener("objects_disconnected", self._objects_disconnected)
+        object.add_listener("relation_changed", self._relation_changed)
     
     def remove(self, object):
         object.remove_listener("object_changed", self._object_changed)
         object.remove_listener("objects_connected", self._objects_connected)
         object.remove_listener("objects_disconnected", self._objects_disconnected)
+        object.remove_listener("relation_changed", self._relation_changed)
         super().remove(object)
         self.emit("object_deleted", object.id)
     
@@ -235,6 +247,9 @@ class collection(list, event.Emitter):
     
     def _objects_disconnected(self, *args):
         self.emit("objects_disconnected", *args)
+    
+    def _relation_changed(self, *args):
+        self.emit("relation_changed", *args)
     
     def get_member(self, member_id):
         for member in self:
@@ -304,6 +319,7 @@ def get_class(class_id):
     return find_by_id("class", classes, class_id)
 
 def delete_class(class_id):
+    global objects
     klass = get_class(class_id)
     objects = [o for o in objects if o.klass == klass]
     for object in objects:
@@ -324,7 +340,9 @@ def get_object(object_id):
     return find_by_id("object", objects, object_id)
 
 def delete_object(object_id):
-    # TODO: Remove all relations involving this object
+    # Remove all relations involving this object
+    for relation in relations:
+        relation.remove(object_id)
     object = get_object(object_id)
     klass = object.klass
     klass.remove_listener("class_changed", object._class_changed)
@@ -446,12 +464,12 @@ def has_path_to(dest_id, *relation_ids):
         return source_object.klass.id != tag_class and has_path(source_object.id, dest_id, *relation_ids)
     return fn
 
-def tagged_with(tag_name):
-    # Find tag with name
-    matches = [o for o in objects if o.klass.id == tag_class and o.get_field("Title") == tag_name]
-    assert len(matches) == 1
-    tag_object = matches[0]
-    return has_path_to(tag_object.id, is_child_of, is_tagged_by)
+# def tagged_with(tag_name):
+#     # Find tag with name
+#     matches = [o for o in objects if o.klass.id == tag_class and o.get_field("Title") == tag_name]
+#     assert len(matches) == 1
+#     tag_object = matches[0]
+#     return has_path_to(tag_object.id, is_child_of, is_tagged_by)
 
 def land(*operands):
     def fn(object):
@@ -477,9 +495,9 @@ def lor(*operands):
 # for object in filter(filter2, objects):
 #    print(object)
 
-def get_object_tags(object_id):
-    tag_relation = get_relation(is_tagged_by)
-    return list(tag_relation._outnodes.get(object_id, []))
+# def get_object_tags(object_id):
+#     tag_relation = get_relation(is_tagged_by)
+#     return list(tag_relation._outnodes.get(object_id, []))
 
 # for tag_id in get_object_tags(goal1):
 #     print(get_object(tag_id))
