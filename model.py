@@ -22,7 +22,7 @@ class Relation(event.Emitter):
         self._outnodes = {}
         self._forest = []
 
-    def connect(self, srcid, dstid):
+    def connect(self, srcid, dstid, source):
         if not self._connect(srcid, dstid):
             return False
         if not self.directed:
@@ -32,6 +32,7 @@ class Relation(event.Emitter):
         
         self._update_forest(srcid)
         self._update_forest(dstid)
+        self.emit("objects_connected", self.id, srcid, dstid, source)
         return True
     
     def _update_forest(self, id):
@@ -53,6 +54,7 @@ class Relation(event.Emitter):
             self._disconnect(dstid, srcid)
         self._update_forest(srcid)
         self._update_forest(dstid)
+        self.emit("objects_disconnected", self.id, srcid, dstid)
     
     def roots(self):
         return list(self._forest)
@@ -215,14 +217,24 @@ class collection(list, event.Emitter):
         super().append(object)
         self.emit("object_created", object.id)
         object.add_listener("object_changed", self._object_changed)
+        object.add_listener("objects_connected", self._objects_connected)
+        object.add_listener("objects_disconnected", self._objects_disconnected)
     
     def remove(self, object):
         object.remove_listener("object_changed", self._object_changed)
+        object.remove_listener("objects_connected", self._objects_connected)
+        object.remove_listener("objects_disconnected", self._objects_disconnected)
         super().remove(object)
         self.emit("object_deleted", object.id)
     
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
+
+    def _objects_connected(self, *args):
+        self.emit("objects_connected", *args)
+    
+    def _objects_disconnected(self, *args):
+        self.emit("objects_disconnected", *args)
     
     def get_member(self, member_id):
         for member in self:
@@ -240,12 +252,12 @@ class collection_map(event.Emitter):
         super().__init__()
         self._objects = {}
     
-    def append(self, object):
+    def append(self, object, source):
         class_id = object.klass.id
         if class_id not in self._objects:
             self._objects[class_id] = set()
         self._objects[class_id].add(object)
-        self.emit("object_created", object.id)
+        self.emit("object_created", object.id, source)
         object.add_listener("object_changed", self._object_changed)
     
     def remove(self, object):
@@ -298,10 +310,10 @@ def delete_class(class_id):
         delete_object(object)
     classes.remove(klass)
 
-def make_object(class_id, *values):
+def make_object(class_id, *values, source="model"):
     klass = get_class(class_id)
     object = Object(klass, *values)
-    objects.append(object)
+    objects.append(object, source)
     klass.add_listener("class_changed", object._class_changed)
     return object.id
 
@@ -331,9 +343,9 @@ def delete_relation(relation_id):
     relation.clear()
     relations.remove(get_relation(relation_id))
 
-def connect(relation_id, *object_ids):
+def connect(relation_id, *object_ids, source="model"):
     relation = get_relation(relation_id)
-    relation.connect(*object_ids)
+    relation.connect(*object_ids, source)
 
 def disconnect(relation_id, *object_ids):
     relation = get_relation(relation_id)
