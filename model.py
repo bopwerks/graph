@@ -16,7 +16,7 @@ class Relation(event.Emitter):
         super().__init__()
         self.id = make_id()
         self.name = name
-        self.color = color
+        self.color = color if color else Color.random()
         self.directed = directed
         self.acyclic = acyclic
         self._max_innodes = max_innodes
@@ -26,6 +26,9 @@ class Relation(event.Emitter):
         self._innodes = {}
         self._outnodes = {}
         self._forest = []
+    
+    def __repr__(self):
+        return "<Relation id={0} name={1}>".format(self.id, repr(self.name))
 
     def connect(self, srcid, dstid, source):
         self._connect(srcid, dstid)
@@ -130,19 +133,12 @@ class Relation(event.Emitter):
 
     def remove(self, id):
         """Remove all relations into and out of the given object"""
-        assert id in self._innodes or id in self._outnodes
-        if id in self._innodes:
-            for innode_id in self._innodes[id]:
-                innode = get_object(innode_id)
-                innode.set_field("Outnodes", innode.get_field("Outnodes") - 1)
-                self.emit("objects_disconnected", self.id, innode_id, id)
-            del self._innodes[id]
-        if id in self._outnodes:
-            for outnode_id in self._outnodes[id]:
-                outnode = get_object(outnode_id)
-                outnode.set_field("Innodes", outnode.get_field("Innodes") - 1)
-                self.emit("objects_disconnected", self.id, id, outnode_id)
-            del self._outnodes[id]
+        innodes = list(self._innodes.get(id, []))
+        outnodes = list(self._outnodes.get(id, []))
+        for innode_id in innodes:
+            self.disconnect(innode_id, id)
+        for outnode_id in outnodes:
+            self.disconnect(id, outnode_id)
 
 class Field(object):
     def __init__(self, name, type, initial_value):
@@ -223,7 +219,7 @@ class Object(event.Emitter):
                 self.fields.append(value)
 
     def __repr__(self):
-        return "Object({0})".format(repr(self.get_field("Title")))
+        return "<Object id={0} title={1}>".format(self.id, repr(self.get_field("Title")))
         # return "Object({0}, {1})".format(repr(self.klass), ', '.join(map(repr, self.fields)))
 
     def get_field(self, name):
@@ -337,7 +333,7 @@ def make_class(name, *custom_fields):
         Field("Title", str, ""),
         Field("Innodes", int, 0),
         Field("Outnodes", int, 0),
-        Field("Color", color, color.random()),
+        Field("Color", Color, Color.random()),
         Field("Visible", bool, True)
     ]
     klass = Class(name, *default_fields, *custom_fields)
@@ -377,8 +373,8 @@ def delete_object(object_id):
     klass.remove_listener("class_changed", object._class_changed)
     objects.remove(get_object(object_id))
 
-def make_relation(name, kolor=None):
-    relation = Relation(name, kolor if kolor else color.random())
+def make_relation(name, *args, **kwargs):
+    relation = Relation(name, *args, **kwargs)
     relations.append(relation)
     return relation.id
 
@@ -398,7 +394,7 @@ def disconnect(relation_id, *object_ids):
     relation = get_relation(relation_id)
     relation.disconnect(*object_ids)
 
-class color(object):
+class Color(object):
     def __init__(self, r, g, b):
         self.r = r
         self.g = g
@@ -407,7 +403,7 @@ class color(object):
     @staticmethod
     def random():
         rand = lambda: random.randint(0, 255)
-        return color(rand(), rand(), rand())
+        return Color(rand(), rand(), rand())
 
 def class_id(id):
     return id
@@ -433,7 +429,12 @@ precedes = make_relation("precedes")
 # tag_class = make_class("Tag")
 # tag1 = make_object(tag_class, "health")
 # tag2 = make_object(tag_class, "exercise")
-# is_child_of = make_relation("is a child of")
+is_child_of = make_relation(
+    "is a child of",
+    directed=True,
+    acyclic=True,
+    max_outnodes=1
+)
 # connect(is_child_of, tag2, tag1)
 
 # is_tagged_by = make_relation("tags")
