@@ -351,6 +351,10 @@ def delete_class(class_id):
         delete_object(object)
     classes.remove(klass)
 
+def set_class_visible(class_id, is_visible):
+    klass = get_class(class_id)
+    klass.set_visible(is_visible)
+
 def make_object(class_id, *values, source="model"):
     klass = get_class(class_id)
     object = Object(klass, *values)
@@ -371,7 +375,7 @@ def delete_object(object_id):
     object = get_object(object_id)
     klass = object.klass
     klass.remove_listener("class_changed", object._class_changed)
-    objects.remove(get_object(object_id))
+    objects.remove(object)
 
 def make_relation(name, *args, **kwargs):
     relation = Relation(name, *args, **kwargs)

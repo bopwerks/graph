@@ -118,6 +118,36 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._line.setLine(x1, y1, x2, y2)
         self._updateLines()
 
+def boundary(dest_node, source_node, line):
+    dest_pos = dest_node.pos()
+    dest_bounding_rect = dest_node.boundingRect()
+    top = dest_pos.y()
+    left = dest_pos.x()
+    bottom = top + dest_bounding_rect.height()
+    right = left + dest_bounding_rect.width()
+
+    m = line.dy() / line.dx()
+    p0 = source_node.pos() + midpoint(source_node)
+    x0 = p0.x()
+    y0 = p0.y()
+
+    vectors = []
+    for side in (right, left):
+        y1 = m * (side - x0) + y0
+        if top <= y1 and y1 <= bottom:
+            vectors.append(QtCore.QPointF(side, y1))
+    
+    for side in (top, bottom):
+        x1 = (side - y0)/m + x0
+        if left <= x1 and x1 <= right:
+            vectors.append(QtCore.QPointF(x1, side))
+    
+    def distance(q):
+        r = q - p0
+        return math.sqrt(QtCore.QPointF.dotProduct(r, r))
+    vectors.sort(key=distance)
+    return vectors[0]
+
 class QEdge(QArrow):
     def __init__(self, relation_id, origin, dest, radius=20, angle=math.pi/6):
         QArrow.__init__(self, relation_id, radius=radius, angle=angle)
@@ -134,6 +164,8 @@ class QEdge(QArrow):
     def _setArrows(self):
         start = self._origin.pos() + midpoint(self._origin)
         end = self._dest.pos() + midpoint(self._dest)
+        self.setLine(start.x(), start.y(), end.x(), end.y())
+        end = boundary(self._dest, self._origin, self._line.line())
         self.setLine(start.x(), start.y(), end.x(), end.y())
 
     def select(self):
