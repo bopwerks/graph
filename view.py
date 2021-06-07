@@ -503,7 +503,9 @@ def make_graphical_object(object_id):
 
 def make_object(klass, *args):
     object_id = model.make_object(klass, *args, source="view")
+    model_object = model.get_object(object_id)
     graphical_object = make_graphical_object(object_id)
+    graphical_object.setVisible(model_object.is_visible())
     return graphical_object
 
 def get_object(object_id):
@@ -528,6 +530,8 @@ class QNodeScene(QtWidgets.QGraphicsScene):
         if source == "model":
             # TODO: Position in a suitable place
             graphical_object = make_graphical_object(object_id)
+            model_object = model.get_object(object_id)
+            graphical_object.setVisible(model_object.is_visible())
             self.addItem(graphical_object)
 
     def _object_deleted(self, object_id):

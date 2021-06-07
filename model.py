@@ -260,7 +260,6 @@ class Class(event.Emitter, VisibilitySuppressor):
         self.id = make_id()
         self.name = name
         self.fields = fields
-        self._suppressors = set()
     
     def set_visible(self, is_visible, symbol=None):
         if symbol is None:
@@ -289,7 +288,7 @@ def is_control(f):
 class Object(event.Emitter, VisibilitySuppressor):
     def __init__(self, klass, *values):
         event.Emitter.__init__(self)
-        VisibilitySuppressor.__init__(self)
+        VisibilitySuppressor.__init__(self, get_class(klass.id).suppressors())
         self.id = make_id()
         self.klass = klass
         self.fields = []
