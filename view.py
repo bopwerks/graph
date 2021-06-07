@@ -149,17 +149,20 @@ def boundary(dest_node, source_node, line):
     return vectors[0]
 
 class QEdge(QArrow):
-    def __init__(self, relation_id, origin, dest, radius=20, angle=math.pi/6):
+    def __init__(self, relation_id, edge_id, origin, dest, radius=20, angle=math.pi/6):
         QArrow.__init__(self, relation_id, radius=radius, angle=angle)
+        self._edge_id = edge_id
         self.setZValue(-1.0)
         self._origin = origin
         self._dest = dest
         self._origin.add_listener("graphical_object_changed", self._onNodeUpdate)
         self._dest.add_listener("graphical_object_changed", self._onNodeUpdate)
         self._setArrows()
+        model_edge = model.get_edge(edge_id)
+        self.setVisible(model_edge.is_visible())
     
     def delete(self):
-        model.disconnect(self.id, self._origin.widget().id, self._dest.widget().id)
+        model.disconnect(self.id, self._edge_id)
 
     def _setArrows(self):
         start = self._origin.pos() + midpoint(self._origin)
@@ -188,11 +191,6 @@ class QEdge(QArrow):
         assert node is self._origin or node is self._dest
         self._setArrows()
 
-    @staticmethod
-    def fromArrow(arrow, origin, dest):
-        edge = QEdge(arrow.id, origin, dest, radius=arrow._radius, angle=arrow._angle)
-        return edge
-
     def mousePressEvent(self, event):
         global selectedEdge
         global selectedNode
@@ -213,7 +211,6 @@ class QCollectionFilter(QtWidgets.QTableWidget):
     def __init__(self, collection, predicate):
         #super().__init__(0, 2)
         super().__init__()
-
         self._predicate = predicate
         self._collection = collection
         self._matches = set()
@@ -289,15 +286,16 @@ class QObjectFilter(QCollectionFilter):
         item = self.item(row, col)
         object.set_field("Title", item.text())
 
-def make_graphical_edge(relation_id, source_object_id, dest_object_id):
+def make_edge(relation_id, edge_id, source_object_id, dest_object_id):
     source_grob = get_object(source_object_id)
     dest_grob = get_object(dest_object_id)
-    graphical_edge = QEdge(relation_id, source_grob, dest_grob)
-    relation = model.get_relation(relation_id)
-    graphical_edge.setVisible(relation.visible)
-    if relation_id not in qedges:
-        qedges[relation_id] = {}
-    qedges[relation_id][(source_object_id, dest_object_id)] = graphical_edge
+    graphical_edge = QEdge(relation_id, edge_id, source_grob, dest_grob)
+    # relation = model.get_relation(relation_id)
+    # graphical_edge.setVisible(model_edge.is_visible())
+    qedges[edge_id] = graphical_edge
+    # if relation_id not in qedges:
+    #     qedges[relation_id] = {}
+    # qedges[relation_id][(source_object_id, dest_object_id)] = graphical_edge
     return graphical_edge
 
 class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
@@ -313,16 +311,11 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
 
     def y(self):
         return self.pos().y()
-
-    def setPosition(self, x, y):
-        self.setPos(x, y)
-        self.emit()
     
     def delete(self):
         model.delete_object(self.widget().id)
 
     def _connect(self, newedge, source_proxy, dest_proxy):
-        global qedges
         source_widget = source_proxy.widget()
         dest_widget = dest_proxy.widget()
         try:
@@ -399,8 +392,9 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         event.accept()
 
     def _object_changed(self, object_id):
-        object = model.get_object(object_id)
-        self.setVisible(object.get_field("Visible"))
+        # object = model.get_object(object_id)
+        # self.setVisible(object.get_field("Visible"))
+        pass
 
 class QNodeWidget(QtWidgets.QFrame, event.Emitter):
     def __init__(self, id):
@@ -462,14 +456,6 @@ class QNodeView(QtWidgets.QGraphicsView):
         brush = QtGui.QBrush(QtGui.QColor(64, 64, 64))
         self.setBackgroundBrush(brush)
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
-
-    def _removeEdge(self, e):
-        global qedges
-        self.scene().removeItem(e)
-        e._origin.remove_listener(e._onNodeUpdate)
-        e._dest.remove_listener(e._onNodeUpdate)
-        e._relation.disconnect(e._origin.id, e._dest.id)
-        del qedges[(e._origin.id, e._dest.id, e._relation)]
 
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -537,13 +523,13 @@ def get_object(object_id):
 def delete_object(object_id):
     pass
 
-def get_edge(relation_id, src_id, dst_id):
-    return qedges[relation_id][(src_id, dst_id)]
+def get_edge(edge_id):
+    return qedges[edge_id]
 
-def get_edges(relation_id, source_id=0, dest_id=0):
-    edges = qedges.get(relation_id, {})
-    is_match = lambda edge: (not source_id or edge[0] == source_id) and (not dest_id or edge[1] == dest_id)
-    return [graphical_edge for edge, graphical_edge in edges.items() if is_match(edge)]
+# def get_edges(relation_id, source_id=0, dest_id=0):
+#     edges = qedges.get(relation_id, {})
+#     is_match = lambda edge: (not source_id or edge[0] == source_id) and (not dest_id or edge[1] == dest_id)
+#     return [graphical_edge for edge, graphical_edge in edges.items() if is_match(edge)]
 
 class QNodeScene(QtWidgets.QGraphicsScene):
     def __init__(self, objects, relations):
@@ -552,9 +538,11 @@ class QNodeScene(QtWidgets.QGraphicsScene):
         self._relations = relations
         self._objects.add_listener("object_created", self._object_created)
         self._objects.add_listener("object_deleted", self._object_deleted)
-        self._relations.add_listener("objects_connected", self._objects_connected)
-        self._relations.add_listener("objects_disconnected", self._objects_disconnected)
-        self._relations.add_listener("relation_changed", self._relation_changed)
+        self._objects.add_listener("object_changed", self._object_changed)
+        self._relations.add_listener("edge_added", self._edge_added)
+        self._relations.add_listener("edge_removed", self._edge_removed)
+        # self._relations.add_listener("relation_changed", self._relation_changed)
+        self._relations.add_listener("edge_changed", self._edge_changed)
 
     def _object_created(self, object_id, source):
         if source == "model":
@@ -565,20 +553,31 @@ class QNodeScene(QtWidgets.QGraphicsScene):
     def _object_deleted(self, object_id):
         object = get_object(object_id)
         self.removeItem(object)
+    
+    def _object_changed(self, object_id):
+        graphical_object = get_object(object_id)
+        model_object = model.get_object(object_id)
+        is_visible = model_object.is_visible()
+        graphical_object.setVisible(is_visible)
 
-    def _objects_connected(self, rel_id, src_id, dst_id, source):
+    def _edge_added(self, rel_id, edge_id, src_id, dst_id, source):
         if source == "model":
-            graphical_edge = make_graphical_edge(rel_id, src_id, dst_id)
+            graphical_edge = make_edge(rel_id, edge_id, src_id, dst_id)
             self.addItem(graphical_edge)
 
-    def _objects_disconnected(self, rel_id, src_id, dst_id):
-        edge = get_edge(rel_id, src_id, dst_id)
+    def _edge_removed(self, edge_id):
+        edge = get_edge(edge_id)
         self.removeItem(edge)
     
-    def _relation_changed(self, rel_id):
-        relation = model.get_relation(rel_id)
-        for edge in get_edges(rel_id):
-            edge.setVisible(relation.visible)
+    # def _relation_changed(self, rel_id):
+    #     relation = model.get_relation(rel_id)
+    #     for edge in get_edges(rel_id):
+    #         edge.setVisible(relation.is_visible())
+    
+    def _edge_changed(self, edge_id):
+        model_edge = model.get_edge(edge_id)
+        graphical_edge = get_edge(edge_id)
+        graphical_edge.setVisible(model_edge.is_visible())
 
 class QCollectionList(QtWidgets.QListWidget):
     def __init__(self, collection):
@@ -617,7 +616,7 @@ class QCollectionList(QtWidgets.QListWidget):
         member = self._collection.get_member(member_id)
         item = QtWidgets.QListWidgetItem(member.name)
         item.setData(QtCore.Qt.ItemDataRole.UserRole, member_id)
-        item.setCheckState(QtCore.Qt.Checked if member.visible else QtCore.Qt.Unchecked)
+        item.setCheckState(QtCore.Qt.Checked if member.is_visible() else QtCore.Qt.Unchecked)
         self.addItem(item)
         self.setCurrentItem(item)
         self.member_added(member)
@@ -654,7 +653,8 @@ class QNodePalette(QCollectionList):
         self.setDragDropMode(QtWidgets.QAbstractItemView.DragOnly)
 
     def member_clicked(self, member, is_checked):
-        member.set_visible(is_checked)
+        if member.is_visible() != is_checked:
+            member.set_visible(is_checked)
 
     def startDrag(self, supportedActions):
         item = self.currentItem()
@@ -677,9 +677,10 @@ class QRelationList(QCollectionList):
         active_relation = remaining_members[0] if remaining_members else no_active_relation
         set_active_relation(active_relation)
 
-    def member_clicked(self, relation, is_checked):
-        set_active_relation(relation.id)
-        relation.set_visible(is_checked)
+    def member_clicked(self, member, is_checked):
+        set_active_relation(member.id)
+        if member.is_visible() != is_checked:
+            member.set_visible(is_checked)
 
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):

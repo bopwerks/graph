@@ -7,13 +7,58 @@ def make_id():
     _id += 1
     return _id
 
+class VisibilitySuppressor(object):
+    def __init__(self, suppressors=set()):
+        self._suppressors = set(suppressors)
+    
+    def set_visible(self, is_visible, symbol):
+        fn = self._suppressors.remove if is_visible else self._suppressors.add
+        old_size = len(self._suppressors)
+        fn(symbol)
+        new_size = len(self._suppressors)
+        if (old_size == 0 and new_size == 1) or (old_size == 1 and new_size == 0):
+            self.visibility_changed()
+    
+    def visibility_changed(self):
+        pass
+
+    def is_visible(self):
+        return not bool(self._suppressors)
+    
+    def suppressors(self):
+        return set(self._suppressors)
+
+class Edge(event.Emitter, VisibilitySuppressor):
+    def __init__(self, first_id, second_id, suppressors=set()):
+        event.Emitter.__init__(self)
+        VisibilitySuppressor.__init__(self, suppressors)
+        self.id = make_id()
+        self.first = first_id
+        self.second = second_id
+    
+    def visibility_changed(self):
+        self.emit("edge_changed", self.id)
+
 class RelationException(Exception):
-    def __init__(self, message):
+    def __init__(self, source_id, dest_id, relation_name, message):
+        source_title = get_object(source_id).get_field("Title")
+        dest_title = get_object(dest_id).get_field("Title")
+        message = "Can't connect {0} to {1} by {2}: {3}".format(
+            repr(source_title), repr(dest_title), repr(relation_name), message
+        )
         super().__init__(message)
 
-class Relation(event.Emitter):
+_edges = {}
+def get_edge(edge_id):
+    return _edges[edge_id]
+
+def delete_edge(edge_id):
+    del _edges[edge_id]
+
+class Relation(event.Emitter, VisibilitySuppressor):
     def __init__(self, name, color=None, directed=True, acyclic=True, max_innodes=-1, max_outnodes=-1):
-        super().__init__()
+        event.Emitter.__init__(self)
+        VisibilitySuppressor.__init__(self)
         self.id = make_id()
         self.name = name
         self.color = color if color else Color.random()
@@ -21,28 +66,43 @@ class Relation(event.Emitter):
         self.acyclic = acyclic
         self._max_innodes = max_innodes
         self._max_outnodes = max_outnodes
-        self.visible = True
         self.reverse = False
         self._innodes = {}
         self._outnodes = {}
         self._forest = []
     
+    def set_visible(self, is_visible, symbol=None):
+        if symbol is None:
+            symbol = self.id
+        VisibilitySuppressor.set_visible(self, is_visible, symbol)
+        for edge_id in self.all_edges():
+            edge = get_edge(edge_id)
+            edge.set_visible(is_visible, symbol)
+    
     def __repr__(self):
         return "<Relation id={0} name={1}>".format(self.id, repr(self.name))
 
     def connect(self, srcid, dstid, source):
-        self._connect(srcid, dstid)
+        edge = Edge(srcid, dstid, self.suppressors())
+        self._connect(srcid, dstid, edge.id)
         if not self.directed:
             try:
-                self._connect(dstid, srcid)
+                self._connect(dstid, srcid, edge.id)
             except RelationException as exception:
                 self._disconnect(srcid, dstid)
                 raise exception
         
         self._update_forest(srcid)
         self._update_forest(dstid)
-        self.emit("objects_connected", self.id, srcid, dstid, source)
-        return True
+        
+        edge.add_listener("edge_changed", self._edge_changed)
+        _edges[edge.id] = edge
+
+        self.emit("edge_added", self.id, edge.id, srcid, dstid, source)
+        return edge.id
+    
+    def _edge_changed(self, edge_id):
+        self.emit("edge_changed", edge_id)
     
     def _update_forest(self, id):
         nodes = self.innodes if self.reverse else self.outnodes
@@ -57,17 +117,20 @@ class Relation(event.Emitter):
     def outnodes(self, id):
         return self._outnodes.get(id, set()).copy()
     
-    def set_visible(self, is_visible):
-        self.visible = is_visible
-        self.emit("relation_changed", self.id)
-    
-    def disconnect(self, srcid, dstid):
+    def disconnect(self, edge_id):
+        edge = get_edge(edge_id)
+        srcid = edge.first
+        dstid = edge.second
+
         self._disconnect(srcid, dstid)
         if not self.directed:
             self._disconnect(dstid, srcid)
         self._update_forest(srcid)
         self._update_forest(dstid)
-        self.emit("objects_disconnected", self.id, srcid, dstid)
+
+        edge.remove_listener("edge_changed", self._edge_changed)
+        self.emit("edge_removed", edge.id)
+        del _edges[edge.id]
     
     def roots(self):
         return list(self._forest)
@@ -75,57 +138,38 @@ class Relation(event.Emitter):
     def is_tree(self):
         return self.directed and self._max_innodes > 1 and self._max_outnodes == 1
 
-    def _connect(self, srcid, dstid):
-        outnodes = self._outnodes.get(srcid, [])
-        innodes = self._innodes.get(dstid, [])
+    def _connect(self, srcid, dstid, edge_id):
+        outnodes = self._outnodes.get(srcid, {})
+        innodes = self._innodes.get(dstid, {})
         if len(outnodes) == self._max_outnodes:
-            source_object = get_object(srcid).get_field("Title")
-            dest_object = get_object(dstid).get_field("Title")
-            raise RelationException(
-                "Can't connect {0} to {1} by {2}: Outnodes of source at maximum.".format(
-                    source_object, dest_object, self.name
-                )
-            )
+            raise RelationException(srcid, dstid, self.name, "Can't add more outnodes.")
         
         if len(innodes) == self._max_innodes:
-            source_object = get_object(srcid).get_field("Title")
-            dest_object = get_object(dstid).get_field("Title")
-            raise RelationException(
-                "Can't connect {0} to {1} by {2}: Innodes of destination at maximum.".format(
-                    source_object, dest_object, self.name
-                )
-            )
+            raise RelationException(srcid, dstid, self.name, "Can't add more innodes.")
         
         if self.acyclic and has_path(dstid, srcid, self.id):
-            source_object = get_object(srcid).get_field("Title")
-            dest_object = get_object(dstid).get_field("Title")
-            raise RelationException(
-                "Can't connect {0} to {1} by {2}: Relation is acyclic.".format(
-                    source_object, dest_object, self.name
-                )
-            )
+            raise RelationException(srcid, dstid, self.name, "Relation is acyclic.")
+
+        # TODO: Restrict the relation to certain types of objects.
         
         source_object = get_object(srcid)
         source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
-        outnodes.append(dstid)
+        outnodes[dstid] = edge_id
         self._outnodes[srcid] = outnodes
         
         dest_object = get_object(dstid)
         dest_object.set_field("Innodes", dest_object.get_field("Innodes") + 1)
-        innodes.append(srcid)
+        innodes[srcid] = edge_id
         self._innodes[dstid] = innodes
 
-        # TODO: Restrict the relation to certain types of objects.
-        return True
-
     def _disconnect(self, srcid, dstid):
-        self._outnodes[srcid].remove(dstid)
+        del self._outnodes[srcid][dstid]
         if not self._outnodes[srcid]:
             del self._outnodes[srcid]
         source_object = get_object(srcid)
         source_object.set_field("Outnodes", source_object.get_field("Outnodes") - 1)
 
-        self._innodes[dstid].remove(srcid)
+        del self._innodes[dstid][srcid]
         if not self._innodes[dstid]:
             del self._innodes[dstid]
         dest_object = get_object(dstid)
@@ -133,12 +177,40 @@ class Relation(event.Emitter):
 
     def remove(self, id):
         """Remove all relations into and out of the given object"""
-        innodes = list(self._innodes.get(id, []))
-        outnodes = list(self._outnodes.get(id, []))
-        for innode_id in innodes:
-            self.disconnect(innode_id, id)
-        for outnode_id in outnodes:
-            self.disconnect(id, outnode_id)
+        edges = list(self.edges(id))
+        for edge_id in edges:
+            self.disconnect(edge_id)
+        # innodes = dict(self._innodes.get(id, {}))
+        # outnodes = dict(self._outnodes.get(id, {}))
+        # for innode_id in innodes.keys():
+        #     self.disconnect(innode_id, id)
+        # for outnode_id in outnodes.keys():
+        #     self.disconnect(id, outnode_id)
+    
+    def edges(self, id):
+        """Return all edges into and out of the given object"""
+        innodes = dict(self._innodes.get(id, {}))
+        outnodes = dict(self._outnodes.get(id, {}))
+        for edge_id in innodes.values():
+            yield edge_id
+        for edge_id in outnodes.values():
+            yield edge_id
+    
+    def all_edges(self):
+        """Return all edges into and out of the given object"""
+        innodes = dict(self._innodes)
+        outnodes = dict(self._outnodes)
+        visited = set()
+        for dest_id, in_edges in innodes.items():
+            for edge_id in in_edges.values():
+                if not edge_id in visited:
+                    yield edge_id
+                    visited.add(edge_id)
+        for dest_id, out_edges in outnodes.items():
+            for edge_id in out_edges.values():
+                if not edge_id in visited:
+                    yield edge_id
+                    visited.add(edge_id)
 
 class Field(object):
     def __init__(self, name, type, initial_value):
@@ -181,17 +253,28 @@ class CheckBox(Control):
     def __init__(self, name, checked=False):
         super().__init__(name)
 
-class Class(event.Emitter):
+class Class(event.Emitter, VisibilitySuppressor):
     def __init__(self, name, *fields):
-        super().__init__()
+        event.Emitter.__init__(self)
+        VisibilitySuppressor.__init__(self)
         self.id = make_id()
         self.name = name
         self.fields = fields
-        self.visible = True
+        self._suppressors = set()
     
-    def set_visible(self, is_visible):
-        self.visible = is_visible
-        self.emit("class_changed", self.id)
+    def set_visible(self, is_visible, symbol=None):
+        if symbol is None:
+            symbol = self.id
+        VisibilitySuppressor.set_visible(self, is_visible, symbol)
+        for object in objects.by_class(self.id):
+            object.set_visible(is_visible, symbol)
+            for relation in relations:
+                pass
+            # Hide edges pointing into and out of this object
+            for relation in relations:
+                for edge_id in relation.edges(object.id):
+                    edge = get_edge(edge_id)
+                    edge.set_visible(is_visible, symbol)
     
     def __repr__(self):
         return "Class({0})".format(repr(self.name))
@@ -203,9 +286,10 @@ def is_field(f):
 def is_control(f):
     return issubclass(type(f), Control)
 
-class Object(event.Emitter):
+class Object(event.Emitter, VisibilitySuppressor):
     def __init__(self, klass, *values):
-        super().__init__()
+        event.Emitter.__init__(self)
+        VisibilitySuppressor.__init__(self)
         self.id = make_id()
         self.klass = klass
         self.fields = []
@@ -217,6 +301,9 @@ class Object(event.Emitter):
                 value = values[i]
                 assert field.is_valid(value), "Expected {0}, got {1}".format(field.type, type(value))
                 self.fields.append(value)
+    
+    def visibility_changed(self):
+        self.emit("object_changed", self.id)
 
     def __repr__(self):
         return "<Object id={0} title={1}>".format(self.id, repr(self.get_field("Title")))
@@ -252,14 +339,16 @@ class collection(list, event.Emitter):
         super().append(object)
         self.emit("object_created", object.id)
         object.add_listener("object_changed", self._object_changed)
-        object.add_listener("objects_connected", self._objects_connected)
-        object.add_listener("objects_disconnected", self._objects_disconnected)
+        object.add_listener("edge_added", self._edge_added)
+        object.add_listener("edge_removed", self._edge_removed)
+        object.add_listener("edge_changed", self._edge_changed)
         object.add_listener("relation_changed", self._relation_changed)
     
     def remove(self, object):
         object.remove_listener("object_changed", self._object_changed)
-        object.remove_listener("objects_connected", self._objects_connected)
-        object.remove_listener("objects_disconnected", self._objects_disconnected)
+        object.remove_listener("edge_added", self._edge_added)
+        object.remove_listener("edge_removed", self._edge_removed)
+        object.remove_listener("edge_changed", self._edge_changed)
         object.remove_listener("relation_changed", self._relation_changed)
         super().remove(object)
         self.emit("object_deleted", object.id)
@@ -267,11 +356,14 @@ class collection(list, event.Emitter):
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
 
-    def _objects_connected(self, *args):
-        self.emit("objects_connected", *args)
+    def _edge_added(self, *args):
+        self.emit("edge_added", *args)
     
-    def _objects_disconnected(self, *args):
-        self.emit("objects_disconnected", *args)
+    def _edge_removed(self, *args):
+        self.emit("edge_removed", *args)
+    
+    def _edge_changed(self, *args):
+        self.emit("edge_changed", *args)
     
     def _relation_changed(self, *args):
         self.emit("relation_changed", *args)
@@ -351,10 +443,6 @@ def delete_class(class_id):
         delete_object(object)
     classes.remove(klass)
 
-def set_class_visible(class_id, is_visible):
-    klass = get_class(class_id)
-    klass.set_visible(is_visible)
-
 def make_object(class_id, *values, source="model"):
     klass = get_class(class_id)
     object = Object(klass, *values)
@@ -390,9 +478,10 @@ def delete_relation(relation_id):
     relation.clear()
     relations.remove(get_relation(relation_id))
 
-def connect(relation_id, *object_ids, source="model"):
+def connect(relation_id, src_id, dst_id, source="model"):
     relation = get_relation(relation_id)
-    relation.connect(*object_ids, source)
+    edge_id = relation.connect(src_id, dst_id, source)
+    return edge_id
 
 def disconnect(relation_id, *object_ids):
     relation = get_relation(relation_id)
