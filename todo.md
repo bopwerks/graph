@@ -1,7 +1,6 @@
 # Todo App Todos
 
 ## Todo
-* Hide arrows pointing to and from hidden objects
 * Add tags tree
   - have a normal class called "Tag"
   - allow classes to have Controls in addition to Fields
