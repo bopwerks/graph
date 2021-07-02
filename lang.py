@@ -151,7 +151,13 @@ def path(source_object_id, dest_object_id, relation_ids):
     "Returns a list of edges between the source and destination objects."
     pass
 
+@builtin("has-path?")
+def haspath(source_id, dest_id, relation_ids):
+    return model.has_path(source_id, dest_id, *relation_ids)
+
 #expr = read("(define (square x) (* x x))")
 #print(eval(expr))
-expr = read("(car (list 1 2 3))")
-print(eval(expr))
+# try:
+#     print(eval(read("(has-path? 1 2 (list 3))")))
+# except Exception as e:
+#     print("Error: {0}".format(e))

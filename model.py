@@ -48,6 +48,10 @@ class RelationException(Exception):
         )
         super().__init__(message)
 
+class LookupException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
 _edges = {}
 def get_edge(edge_id):
     return _edges[edge_id]
@@ -416,7 +420,8 @@ relations = collection()
 
 def find_by_id(type, list, id):
     matches = [o for o in list if o.id == id]
-    assert len(matches) == 1, "Can't find {0} with id {1}".format(type, id)
+    if len(matches) != 1:
+        raise LookupException("Can't find {0} with id {1}".format(type, id))
     return matches[0]
 
 def make_class(name, *custom_fields):

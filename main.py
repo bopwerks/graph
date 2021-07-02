@@ -1,5 +1,4 @@
 import sys
-import model
 import view
 
 def main(argv):

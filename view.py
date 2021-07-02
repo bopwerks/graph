@@ -1,7 +1,6 @@
 # graph.py -- A network layout program.
 import math
-import sys
-import random
+import lang
 import model
 import event
 from PyQt5 import QtCore
@@ -715,9 +714,13 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._toolbar.addAction(action)
     
     def _onNewNode(self, *args):
-        a = model.make_object(model.tag_class, "tag A")
-        b = model.make_object(model.tag_class, "tag B")
-        model.connect(model.precedes, a, b)
+        # a = model.make_object(model.tag_class, "tag A")
+        # b = model.make_object(model.tag_class, "tag B")
+        # model.connect(model.precedes, a, b)
+        code = """
+        (has-path? 6 7 (list 5))
+        """
+        print(lang.eval(lang.read(code)))
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
