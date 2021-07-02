@@ -91,7 +91,7 @@ def eval(expr, env=global_env):
     elif op == "quote":
         return args[0]
     elif op == "if":
-        return eval(expr[1]) if eval(args[0]) else eval(expr[2])
+        return eval(args[1]) if eval(args[0]) else eval(args[2])
     elif op == "let":
         parms = [b[0] for b in args[0]]
         body = args[1:]
@@ -155,9 +155,22 @@ def path(source_object_id, dest_object_id, relation_ids):
 def haspath(source_id, dest_id, relation_ids):
     return model.has_path(source_id, dest_id, *relation_ids)
 
-#expr = read("(define (square x) (* x x))")
-#print(eval(expr))
+@builtin("hide-object")
+def hide_object(object_id, symbol):
+    object = model.get_object(object_id)
+    object.set_visible(False, symbol)
+
+@builtin("show-object")
+def show_object(object_id, symbol):
+    object = model.get_object(object_id)
+    object.set_visible(True, symbol)
+
+@builtin("object-visible?")
+def visiblep(object_id):
+    object = model.get_object(object_id)
+    return object.is_visible()
+
 # try:
-#     print(eval(read("(has-path? 1 2 (list 3))")))
+#     print(eval(read("(if 0 2 3)")))
 # except Exception as e:
 #     print("Error: {0}".format(e))

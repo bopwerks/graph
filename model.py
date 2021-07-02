@@ -271,13 +271,6 @@ class Class(event.Emitter, VisibilitySuppressor):
         VisibilitySuppressor.set_visible(self, is_visible, symbol)
         for object in objects.by_class(self.id):
             object.set_visible(is_visible, symbol)
-            for relation in relations:
-                pass
-            # Hide edges pointing into and out of this object
-            for relation in relations:
-                for edge_id in relation.edges(object.id):
-                    edge = get_edge(edge_id)
-                    edge.set_visible(is_visible, symbol)
     
     def __repr__(self):
         return "Class({0})".format(repr(self.name))
@@ -307,6 +300,16 @@ class Object(event.Emitter, VisibilitySuppressor):
     
     def visibility_changed(self):
         self.emit("object_changed", self.id)
+    
+    def set_visible(self, is_visible, symbol=None):
+        if symbol is None:
+            symbol = self.id
+        VisibilitySuppressor.set_visible(self, is_visible, symbol)
+        # Hide edges pointing into and out of this object
+        for relation in relations:
+            for edge_id in relation.edges(self.id):
+                edge = get_edge(edge_id)
+                edge.set_visible(is_visible, symbol)
 
     def __repr__(self):
         return "<Object id={0} title={1}>".format(self.id, repr(self.get_field("Title")))
