@@ -15,7 +15,7 @@ def _tokenize(str):
     "Convert a string into a list of tokens."
     return str.replace('(', ' ( ').replace(')', ' ) ').split()
 
-def atom(token):
+def _atom(token):
     "Numbers become numbers; every other token is a symbol."
     try: return int(token)
     except ValueError:
@@ -37,7 +37,7 @@ def _read_from_tokens(tokens):
     elif token == ')':
         raise SyntaxError('unexpected )')
     else:
-        return atom(token)
+        return _atom(token)
 
 def read(str):
     "Convert a string into an s-expression."
@@ -88,6 +88,8 @@ def eval(expr, env=global_env):
     op, *args = expr
     if op == "lambda":
         return Procedure(args[0], args[1:], env)
+    elif op == "quote":
+        return args[0]
     elif op == "if":
         return eval(expr[1]) if eval(args[0]) else eval(expr[2])
     elif op == "let":
@@ -108,7 +110,48 @@ def eval(expr, env=global_env):
         args = [eval(arg, env) for arg in args]
         return proc(*args)
 
-expr = read("(define (square x) (* x x))")
-print(eval(expr))
-expr = read("(square 7)")
+def builtin(arg):
+    if callable(arg):
+        global_env[arg.__name__] = arg
+        return arg
+    else:
+        def rval(fn):
+            global_env[arg] = fn
+            return fn
+        return rval
+
+@builtin
+def car(L):
+    return L[0]
+car = builtin(car)
+
+@builtin
+def cdr(L):
+    return L[1:]
+
+@builtin("null?")
+def nullp(L):
+    return not bool(L)
+
+@builtin("list")
+def _list(*args):
+    return list(args)
+
+@builtin
+def square(x):
+    return x * x
+
+@builtin
+def bfs(object_id, relation_ids):
+    "Returns a list of IDs of all objects reachable from the given object via the given relations."
+    pass
+
+@builtin
+def path(source_object_id, dest_object_id, relation_ids):
+    "Returns a list of edges between the source and destination objects."
+    pass
+
+#expr = read("(define (square x) (* x x))")
+#print(eval(expr))
+expr = read("(car (list 1 2 3))")
 print(eval(expr))
