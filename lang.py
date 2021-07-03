@@ -92,6 +92,16 @@ def eval(expr, env=global_env):
         return args[0]
     elif op == "if":
         return eval(args[1], env) if eval(args[0], env) else eval(args[2], env)
+    elif op == "or":
+        for arg in args:
+            result = eval(arg, env)
+            if result:
+                return True
+    elif op == "and":
+        for arg in args:
+            result = eval(arg, env)
+            if not result:
+                return False
     elif op == "let":
         parms = [b[0] for b in args[0]]
         body = args[1:]
@@ -151,6 +161,24 @@ def path(source_object_id, dest_object_id, relation_ids):
     "Returns a list of edges between the source and destination objects."
     pass
 
+@builtin("not")
+def _not(bool):
+    not bool
+
+@builtin("any")
+def any(fn, L):
+    for elt in L:
+        if fn(elt):
+            return True
+    return False
+
+@builtin("all")
+def all(fn, L):
+    for elt in L:
+        if not fn(elt):
+            return False
+    return True
+
 @builtin("has-path?")
 def haspath(source_id, dest_id, relation_ids):
     return model.has_path(source_id, dest_id, *relation_ids)
@@ -170,11 +198,33 @@ def visiblep(object_id):
     object = model.get_object(object_id)
     return object.is_visible()
 
+@builtin("remove-if")
+def remove_if(fn, L):
+    return list(filter(lambda object: not fn(object), L))
+
 @builtin("all-objects")
 def all_objects():
     return list(map(lambda object: object.id, model.objects))
 
-# try:
-#     print(eval(read("(if 0 2 3)")))
-# except Exception as e:
-#     print("Error: {0}".format(e))
+@builtin("apply-all")
+def apply_all(fn, L):
+    for elt in L:
+        fn(L)
+
+@builtin("map")
+def _map(fn, L):
+    return list(map(fn, L))
+
+@builtin
+def identity(arg):
+    return arg
+
+try:
+    print(eval(read("(remove-if (lambda (x) (= x 3)) (list 1 3 2 3 4 3))")))
+    print(eval(read("(and 1 2 3 0)")))
+    print(eval(read("(or 1 2 3 0)")))
+    print(eval(read("(map (lambda (x) (+ x 1)) (list 1 2 3 4))")))
+    print(eval(read("(any identity (list 1 2 3 0))")))
+    print(eval(read("(all identity (list 1 2 3 0))")))
+except Exception as e:
+    print("Error: {0}".format(e))
