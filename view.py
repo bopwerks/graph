@@ -718,9 +718,10 @@ class QMainWindow(QtWidgets.QMainWindow):
         # b = model.make_object(model.tag_class, "tag B")
         # model.connect(model.precedes, a, b)
         code = """
-        (if (object-visible? 6)
-            (hide-object 6 (quote boop))
-            (show-object 6 (quote boop)))
+        (let ((object-id (car (all-objects))))
+          (if (object-visible? object-id)
+            (hide-object object-id (quote boop))
+            (show-object object-id (quote boop))))
         """
         print(lang.eval(lang.read(code)))
 

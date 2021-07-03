@@ -91,7 +91,7 @@ def eval(expr, env=global_env):
     elif op == "quote":
         return args[0]
     elif op == "if":
-        return eval(args[1]) if eval(args[0]) else eval(args[2])
+        return eval(args[1], env) if eval(args[0], env) else eval(args[2], env)
     elif op == "let":
         parms = [b[0] for b in args[0]]
         body = args[1:]
@@ -169,6 +169,10 @@ def show_object(object_id, symbol):
 def visiblep(object_id):
     object = model.get_object(object_id)
     return object.is_visible()
+
+@builtin("all-objects")
+def all_objects():
+    return list(map(lambda object: object.id, model.objects))
 
 # try:
 #     print(eval(read("(if 0 2 3)")))
