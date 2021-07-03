@@ -219,6 +219,24 @@ def _map(fn, L):
 def identity(arg):
     return arg
 
+@builtin("zero?")
+def zerop(arg):
+    return arg == 0
+
+@builtin
+def length(L):
+    return len(L)
+
+@builtin
+def innodes(object_id, relation_id):
+    "Returns the number of nodes with edges pointing to an object."
+    return list(model.innodes(object_id, relation_id))
+
+@builtin
+def outnodes(object_id, relation_id):
+    "Returns the number of nodes with edges pointing from an object."
+    return list(model.outnodes(object_id, relation_id))
+
 try:
     print(eval(read("(remove-if (lambda (x) (= x 3)) (list 1 3 2 3 4 3))")))
     print(eval(read("(and 1 2 3 0)")))

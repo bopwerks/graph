@@ -116,10 +116,10 @@ class Relation(event.Emitter, VisibilitySuppressor):
             self._forest.remove(id)
     
     def innodes(self, id):
-        return self._innodes.get(id, set()).copy()
+        return list(self._innodes.get(id, {}).keys())
     
     def outnodes(self, id):
-        return self._outnodes.get(id, set()).copy()
+        return list(self._outnodes.get(id, {}).keys())
     
     def disconnect(self, edge_id):
         edge = get_edge(edge_id)
@@ -157,14 +157,14 @@ class Relation(event.Emitter, VisibilitySuppressor):
         # TODO: Restrict the relation to certain types of objects.
         
         source_object = get_object(srcid)
-        source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
         outnodes[dstid] = edge_id
         self._outnodes[srcid] = outnodes
+        source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
         
         dest_object = get_object(dstid)
-        dest_object.set_field("Innodes", dest_object.get_field("Innodes") + 1)
         innodes[srcid] = edge_id
         self._innodes[dstid] = innodes
+        dest_object.set_field("Innodes", dest_object.get_field("Innodes") + 1)
 
     def _disconnect(self, srcid, dstid):
         del self._outnodes[srcid][dstid]
@@ -184,12 +184,6 @@ class Relation(event.Emitter, VisibilitySuppressor):
         edges = list(self.edges(id))
         for edge_id in edges:
             self.disconnect(edge_id)
-        # innodes = dict(self._innodes.get(id, {}))
-        # outnodes = dict(self._outnodes.get(id, {}))
-        # for innode_id in innodes.keys():
-        #     self.disconnect(innode_id, id)
-        # for outnode_id in outnodes.keys():
-        #     self.disconnect(id, outnode_id)
     
     def edges(self, id):
         """Return all edges into and out of the given object"""
@@ -631,3 +625,13 @@ def lor(*operands):
 
 # for tag_id in get_object_tags(goal1):
 #     print(get_object(tag_id))
+
+def innodes(object_id, relation_id):
+    "Returns the number of nodes pointing the given node via the given edge type."
+    relation: Relation = get_relation(relation_id)
+    return relation.innodes(object_id)
+
+def outnodes(object_id, relation_id):
+    "Returns the number of nodes pointing the given node via the given edge type."
+    relation: Relation = get_relation(relation_id)
+    return relation.outnodes(object_id)

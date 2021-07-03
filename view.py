@@ -6,12 +6,11 @@ import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QMessageBox, QTreeView
+from PyQt5.QtWidgets import QApplication, QMessageBox, QSpinBox, QTreeView
 
 zvalue_max = 0.0
 zvalue_increment = 1.0
 newedge = None
-editor = None
 nodelist = None
 
 no_selected_item = None
@@ -227,7 +226,7 @@ class QCollectionFilter(QtWidgets.QTableWidget):
 
     def _object_created(self, object_id, source):
         object = self._collection.get_member(object_id)
-        if self._predicate(object):
+        if self._predicate(object_id):
             # Add the object to the widget
             self._matches_list.append(object_id)
             self._matches.add(object_id)
@@ -248,7 +247,7 @@ class QCollectionFilter(QtWidgets.QTableWidget):
             self._matches.remove(object_id)
 
     def _object_changed(self, object_id):
-        if self._predicate(model.get_object(object_id)):
+        if self._predicate(object_id):
             if object_id in self._matches:
                 # TODO: Update the object in the display
                 # NB: Changing table items here will cause an infinite loop
@@ -669,35 +668,40 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         # set size to 70% of screen
         #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
+        self.setWindowTitle(title)
 
         self._scene = QNodeScene(model.objects, model.relations)
         self._view = QNodeView(self._scene)
         self.setCentralWidget(self._view)
 
-        self._tagmodel = QTagModel()
-        self._tagview = QTagView(self._tagmodel)
-        self._tagdock = QtWidgets.QDockWidget("Tags")
-        self._tagdock.setWidget(self._tagview)
-
-        self._list = QtWidgets.QDockWidget("Objects")
-        show_actionable = model.eq(model.field("Innodes"), model.const(0))
-        nodelist = QObjectFilter(model.objects, show_actionable)
-        self._list.setWidget(nodelist)
+        # Left Dock
+        self._palette = QtWidgets.QDockWidget("Classes")
+        self._palette.setWidget(QNodePalette(model.classes))
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
 
         self._relationList = QtWidgets.QDockWidget("Relations")
         show_all = lambda member: True
         relationList = QRelationList(model.relations)
         self._relationList.setWidget(relationList)
-
-        self.setWindowTitle(title)
-        # self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
-
-        self._palette = QtWidgets.QDockWidget("Classes")
-        self._palette.setWidget(QNodePalette(model.classes))
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
+
+        self._list = QtWidgets.QDockWidget("Objects")
+        show_actionable = model.eq(model.field("Innodes"), model.const(0))
+        show_actionable = lang.eval(lang.read("(lambda (object-id) (zero? (length (innodes object-id 4))))"))
+        nodelist = QObjectFilter(model.objects, show_actionable)
+        self._list.setWidget(nodelist)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._list)
+
+        # Right Dock
+        self._tagmodel = QTagModel()
+        self._tagview = QTagView(self._tagmodel)
+        self._tagdock = QtWidgets.QDockWidget("Tags")
+        self._tagdock.setWidget(self._tagview)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._tagdock)
+
+        self._editor = QtWidgets.QDockWidget("Editor")
+        self._editor.setWidget(QRelationEditor())
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
 
         self._toolbar = self.addToolBar("Task")
         self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
@@ -706,7 +710,6 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._toolbar.addSeparator()
 
     def _addButton(self, text, icontype, callback):
-        assert self._toolbar
         icon = self.style().standardIcon(icontype)
         action = QtWidgets.QAction(icon, text, self)
         action.triggered.connect(callback)
@@ -727,6 +730,49 @@ class QMainWindow(QtWidgets.QMainWindow):
 
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
+
+class QRelationEditor(QtWidgets.QFrame):
+    def __init__(self):
+        QtWidgets.QFrame.__init__(self)
+        self._layout = QtWidgets.QFormLayout()
+
+        self._name = QtWidgets.QLineEdit()
+        self._layout.addRow("&Name", self._name)
+
+        self._color = QtWidgets.QPushButton()
+        self._layout.addRow("&Color", self._color)
+
+        self._directed = QtWidgets.QCheckBox()
+        self._layout.addRow("&Directed", self._directed)
+
+        self._acyclic = QtWidgets.QCheckBox()
+        self._layout.addRow("&Acyclic", self._acyclic)
+
+        self._reverse = QtWidgets.QCheckBox()
+        self._layout.addRow("&Reverse", self._reverse)
+
+        self._max_innodes = QtWidgets.QSpinBox()
+        self._max_innodes.setMinimum(-1)
+        self._max_innodes.setSingleStep(1)
+        self._max_innodes.setSpecialValueText("No Limit")
+        self._max_innodes.setValue(-1)
+        self._layout.addRow("Max In-Nodes", self._max_innodes)
+
+        self._max_outnodes = QtWidgets.QSpinBox()
+        self._max_outnodes.setMinimum(-1)
+        self._max_outnodes.setSingleStep(1)
+        self._max_outnodes.setSpecialValueText("No Limit")
+        self._max_outnodes.setValue(-1)
+        self._layout.addRow("Max Out-Nodes", self._max_outnodes)
+
+        self._on_add = QtWidgets.QTextEdit()
+        self._layout.addRow("On Add", self._on_add)
+
+        self._on_delete = QtWidgets.QTextEdit()
+        self._layout.addRow("On Delete", self._on_delete)
+
+        self.setLayout(self._layout)
+
 
 class QNodeEditor(QtWidgets.QFrame):
     def __init__(self):
