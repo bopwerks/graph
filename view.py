@@ -6,7 +6,7 @@ import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QMessageBox, QSpinBox, QTreeView
+from PyQt5.QtWidgets import QApplication, QColorDialog, QMessageBox, QSpinBox, QTreeView
 
 zvalue_max = 0.0
 zvalue_increment = 1.0
@@ -67,24 +67,31 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._angle = angle
 
         relation = model.get_relation(relation_id)
-        color = relation.color
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke_color = QtGui.QColor(color.r, color.g, color.b)
-        #palette.setColor(self.backgroundRole(), bgcolor)
-        stroke.setColor(stroke_color)
-        thickpen = QtGui.QPen(stroke, 2)
-        thinpen = QtGui.QPen(stroke, 1)
+        stroke.setColor(QtGui.QColor(relation.color.r, relation.color.g, relation.color.b))
+        self._thickpen = QtGui.QPen(stroke, 2)
+        self._thinpen = QtGui.QPen(stroke, 1)
 
         self._line = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._line.setPen(thinpen)
+        self._line.setPen(self._thinpen)
         self._arrow1 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow1.setPen(thickpen)
+        self._arrow1.setPen(self._thickpen)
         self._arrow2 = QtWidgets.QGraphicsLineItem(0, 0, 0, 0)
-        self._arrow2.setPen(thickpen)
+        self._arrow2.setPen(self._thickpen)
 
         self.addToGroup(self._line)
         self.addToGroup(self._arrow1)
         self.addToGroup(self._arrow2)
+        self._updateLines()
+    
+    def setColor(self, color):
+        stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
+        stroke.setColor(color)
+        self._thickpen = QtGui.QPen(stroke, 2)
+        self._thinpen = QtGui.QPen(stroke, 1)
+        self._line.setPen(self._thinpen)
+        self._arrow1.setPen(self._thickpen)
+        self._arrow2.setPen(self._thickpen)
         self._updateLines()
 
     def _updateLines(self):
@@ -155,11 +162,19 @@ class QEdge(QArrow):
         self._dest = dest
         self._origin.add_listener("graphical_object_changed", self._onNodeUpdate)
         self._dest.add_listener("graphical_object_changed", self._onNodeUpdate)
+        self._relation = model.get_relation(relation_id)
+        self._relation.add_listener("object_changed", self._on_relation_changed)
         self._setArrows()
         model_edge = model.get_edge(edge_id)
         self.setVisible(model_edge.is_visible())
     
+    def _on_relation_changed(self, relation_id):
+        self.setColor(QtGui.QColor(self._relation.color.r, self._relation.color.g, self._relation.color.b))
+    
     def delete(self):
+        self._origin.remove_listener("graphical_object_changed", self._onNodeUpdate)
+        self._dest.remove_listener("graphical_object_changed", self._onNodeUpdate)
+        self._relation.remove_listener("object_changed", self._on_relation_changed)
         model.disconnect(self.id, self._edge_id)
 
     def _setArrows(self):
@@ -643,8 +658,9 @@ class QNodePalette(QCollectionList):
         drag.exec()
 
 class QRelationList(QCollectionList):
-    def __init__(self, collection):
+    def __init__(self, collection, edit):
         super().__init__(collection)
+        self._edit = edit
 
     def member_added(self, relation):
         set_active_relation(relation.id)
@@ -658,6 +674,7 @@ class QRelationList(QCollectionList):
         set_active_relation(member.id)
         if member.is_visible() != is_checked:
             member.set_visible(is_checked)
+        self._edit(member)
 
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
@@ -681,12 +698,11 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         self._relationList = QtWidgets.QDockWidget("Relations")
         show_all = lambda member: True
-        relationList = QRelationList(model.relations)
+        relationList = QRelationList(model.relations, lambda relation: self._editor.setWidget(QRelationEditor(relation)))
         self._relationList.setWidget(relationList)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
 
         self._list = QtWidgets.QDockWidget("Objects")
-        show_actionable = model.eq(model.field("Innodes"), model.const(0))
         show_actionable = lang.eval(lang.read("(lambda (object-id) (zero? (length (innodes object-id 4))))"))
         nodelist = QObjectFilter(model.objects, show_actionable)
         self._list.setWidget(nodelist)
@@ -700,7 +716,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._tagdock)
 
         self._editor = QtWidgets.QDockWidget("Editor")
-        self._editor.setWidget(QRelationEditor())
+        #self._editor.setWidget(QRelationEditor())
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
 
         self._toolbar = self.addToolBar("Task")
@@ -731,48 +747,108 @@ class QMainWindow(QtWidgets.QMainWindow):
 def checkstate(val):
     return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
 
+class QColorWidget(QtWidgets.QPushButton):
+    colorChanged = QtCore.pyqtSignal(QtGui.QColor)
+    def __init__(self, color):
+        QtWidgets.QPushButton.__init__(self)
+        self._set_color(color)
+        self.clicked.connect(self._on_click)
+    
+    def _set_color(self, color):
+        palette = self.palette()
+        palette.setColor(self.backgroundRole(), color)
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+        self.setFlat(True)
+        self.colorChanged.emit(color)
+    
+    def _on_click(self):
+        color = QColorDialog.getColor()
+        self._set_color(color)
+
 class QRelationEditor(QtWidgets.QFrame):
-    def __init__(self):
+    def __init__(self, relation):
         QtWidgets.QFrame.__init__(self)
         self._layout = QtWidgets.QFormLayout()
+        self._relation: model.Relation = relation
 
-        self._name = QtWidgets.QLineEdit()
+        self._name = QtWidgets.QLineEdit(relation.name)
+        self._name.textChanged.connect(self._on_name_changed)
         self._layout.addRow("&Name", self._name)
 
-        self._color = QtWidgets.QPushButton()
+        self._color = QColorWidget(QtGui.QColor(relation.color.r, relation.color.g, relation.color.b))
+        self._color.colorChanged.connect(self._on_color_changed)
         self._layout.addRow("&Color", self._color)
 
         self._directed = QtWidgets.QCheckBox()
+        self._directed.setCheckState(relation.directed)
+        self._directed.stateChanged.connect(self._on_directed_changed)
         self._layout.addRow("&Directed", self._directed)
 
         self._acyclic = QtWidgets.QCheckBox()
+        self._acyclic.setCheckState(relation.acyclic)
+        self._acyclic.stateChanged.connect(self._on_acyclic_changed)
         self._layout.addRow("&Acyclic", self._acyclic)
 
         self._reverse = QtWidgets.QCheckBox()
+        self._reverse.setCheckState(relation.reverse)
+        self._reverse.stateChanged.connect(self._on_reverse_changed)
         self._layout.addRow("&Reverse", self._reverse)
 
         self._max_innodes = QtWidgets.QSpinBox()
         self._max_innodes.setMinimum(-1)
         self._max_innodes.setSingleStep(1)
         self._max_innodes.setSpecialValueText("No Limit")
-        self._max_innodes.setValue(-1)
+        self._max_innodes.setValue(relation._max_innodes)
         self._layout.addRow("Max In-Nodes", self._max_innodes)
+        # TODO: Add handler to check if the proposed value is valid before changing
 
         self._max_outnodes = QtWidgets.QSpinBox()
         self._max_outnodes.setMinimum(-1)
         self._max_outnodes.setSingleStep(1)
         self._max_outnodes.setSpecialValueText("No Limit")
-        self._max_outnodes.setValue(-1)
+        self._max_outnodes.setValue(relation._max_outnodes)
         self._layout.addRow("Max Out-Nodes", self._max_outnodes)
+        # TODO: Add handler to check if the proposed value is valid before changing
 
         self._on_add = QtWidgets.QTextEdit()
+        self._on_add.setText(relation.on_add)
+        self._on_add.textChanged.connect(self._on_add_changed)
         self._layout.addRow("On Add", self._on_add)
 
         self._on_delete = QtWidgets.QTextEdit()
+        self._on_delete.setText(relation.on_delete)
         self._layout.addRow("On Delete", self._on_delete)
 
         self.setLayout(self._layout)
+    
+    def _on_name_changed(self):
+        self._relation.name = self._name.text()
+        self._relation.emit("object_changed", self._relation.id)
+    
+    def _on_color_changed(self, color: QtGui.QColor):
+        self._relation.color = model.Color(color.red(), color.green(), color.blue())
+        self._relation.emit("object_changed", self._relation.id)
 
+    def _on_directed_changed(self, state):
+        self._relation.directed = bool(state)
+        self._relation.emit("object_changed", self._relation.id)
+
+    def _on_acyclic_changed(self, state):
+        self._relation.acyclic = bool(state)
+        self._relation.emit("object_changed", self._relation.id)
+
+    def _on_reverse_changed(self, state):
+        self._relation.reverse = bool(state)
+        self._relation.emit("object_changed", self._relation.id)
+    
+    def _on_add_changed(self):
+        self._relation.on_add = self._on_add.toPlainText()
+        self._relation.emit("object_changed", self._relation.id)
+    
+    def _on_delete_changed(self):
+        self._relation.on_delete = self._on_delete.toPlainText()
+        self._relation.emit("object_changed", self._relation.id)
 
 class QNodeEditor(QtWidgets.QFrame):
     def __init__(self):

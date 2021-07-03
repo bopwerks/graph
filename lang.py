@@ -227,6 +227,10 @@ def zerop(arg):
 def length(L):
     return len(L)
 
+@builtin("do-nothing")
+def do_nothing(*args):
+    pass
+
 @builtin
 def innodes(object_id, relation_id):
     "Returns the number of nodes with edges pointing to an object."
@@ -238,11 +242,12 @@ def outnodes(object_id, relation_id):
     return list(model.outnodes(object_id, relation_id))
 
 try:
-    print(eval(read("(remove-if (lambda (x) (= x 3)) (list 1 3 2 3 4 3))")))
-    print(eval(read("(and 1 2 3 0)")))
-    print(eval(read("(or 1 2 3 0)")))
-    print(eval(read("(map (lambda (x) (+ x 1)) (list 1 2 3 4))")))
-    print(eval(read("(any identity (list 1 2 3 0))")))
-    print(eval(read("(all identity (list 1 2 3 0))")))
+    # print(eval(read("(remove-if (lambda (x) (= x 3)) (list 1 3 2 3 4 3))")))
+    # print(eval(read("(and 1 2 3 0)")))
+    # print(eval(read("(or 1 2 3 0)")))
+    # print(eval(read("(map (lambda (x) (+ x 1)) (list 1 2 3 4))")))
+    # print(eval(read("(any identity (list 1 2 3 0))")))
+    # print(eval(read("(all identity (list 1 2 3 0))")))
+    pass
 except Exception as e:
     print("Error: {0}".format(e))

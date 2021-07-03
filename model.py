@@ -70,6 +70,8 @@ class Relation(event.Emitter, VisibilitySuppressor):
         self.acyclic = acyclic
         self._max_innodes = max_innodes
         self._max_outnodes = max_outnodes
+        self.on_add = "do-nothing"
+        self.on_delete = "do-nothing"
         self.reverse = False
         self._innodes = {}
         self._outnodes = {}

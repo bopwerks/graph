@@ -3,7 +3,7 @@ import view
 
 def main(argv):
     app = view.QApplication(argv)
-    win = view.QMainWindow("Rētĭcŭlātus")
+    win = view.QMainWindow("Reticulus")
     win.show()
     app.exec_()
     EXIT_SUCCESS = 0
