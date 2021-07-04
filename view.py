@@ -205,10 +205,6 @@ class QEdge(QArrow):
         self._setArrows()
 
     def mousePressEvent(self, event):
-        global selectedEdge
-        global selectedNode
-        global editor
-
         button = event.button()
         mouse = event.pos()
         pos = self.scenePos()
@@ -679,8 +675,6 @@ class QRelationList(QCollectionList):
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
-
-        global editor
         global nodelist
 
         # set size to 70% of screen
