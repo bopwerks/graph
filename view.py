@@ -132,7 +132,7 @@ def boundary(dest_node, source_node, line):
     bottom = top + dest_bounding_rect.height()
     right = left + dest_bounding_rect.width()
 
-    m = line.dy() / line.dx()
+    m = line.dy() / line.dx() if line.dx() else 0
     p0 = source_node.pos() + midpoint(source_node)
     x0 = p0.x()
     y0 = p0.y()
@@ -144,7 +144,7 @@ def boundary(dest_node, source_node, line):
             vectors.append(QtCore.QPointF(side, y1))
     
     for side in (top, bottom):
-        x1 = (side - y0)/m + x0
+        x1 = ((side - y0)/m + x0) if m else x0
         if left <= x1 and x1 <= right:
             vectors.append(QtCore.QPointF(x1, side))
     
