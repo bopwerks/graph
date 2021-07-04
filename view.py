@@ -744,9 +744,6 @@ class QMainWindow(QtWidgets.QMainWindow):
         """
         print(lang.eval(lang.read(code)))
 
-def checkstate(val):
-    return QtCore.Qt.Checked if bool(val) else QtCore.Qt.Unchecked
-
 class QColorWidget(QtWidgets.QPushButton):
     colorChanged = QtCore.pyqtSignal(QtGui.QColor)
     def __init__(self, color):
@@ -849,59 +846,6 @@ class QRelationEditor(QtWidgets.QFrame):
     def _on_delete_changed(self):
         self._relation.on_delete = self._on_delete.toPlainText()
         self._relation.emit("object_changed", self._relation.id)
-
-class QNodeEditor(QtWidgets.QFrame):
-    def __init__(self):
-        QtWidgets.QFrame.__init__(self)
-        self._title = QtWidgets.QTextEdit()
-        self._urgent = QtWidgets.QCheckBox()
-        self._important = QtWidgets.QCheckBox()
-
-        self._layout = QtWidgets.QFormLayout()
-        self._layout.addRow("&Title", self._title)
-        self._layout.addRow("&Urgent", self._urgent)
-        self._layout.addRow("&Important", self._important)
-        self.setLayout(self._layout)
-
-        self._clear()
-        self._setEnabled(False)
-
-        self._title.textChanged.connect(self._onTitleChange)
-        self._urgent.stateChanged.connect(self._onUrgentChange)
-        self._important.stateChanged.connect(self._onImptChange)
-
-    def setNode(self, node):
-        self._node = node
-        if not self._node:
-            self._clear()
-            self._setEnabled(False)
-        else:
-            self._setEnabled(True)
-            self._title.setText(self._node.title())
-            self._urgent.setCheckState(checkstate(self._node.urgent()))
-            self._important.setCheckState(checkstate(self._node.important()))
-
-    def _clear(self):
-        self._title.setText("")
-        self._urgent.setCheckState(checkstate(False))
-        self._important.setCheckState(checkstate(False))
-
-    def _setEnabled(self, val):
-        self._title.setDisabled(not val)
-        self._urgent.setDisabled(not val)
-        self._important.setDisabled(not val)
-
-    def _onTitleChange(self):
-        if self._node:
-            self._node.setTitle(self._title.toPlainText())
-
-    def _onUrgentChange(self, state):
-        if self._node:
-            self._node.setUrgent(bool(state))
-
-    def _onImptChange(self, state):
-        if self._node:
-            self._node.setImportant(bool(state))
 
 def make_tree(key, *children):
     parent = {
