@@ -1,12 +1,13 @@
 # graph.py -- A network layout program.
 import math
 import lang
+import log
 import model
 import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QApplication, QColorDialog, QMessageBox, QSpinBox, QTreeView
+from PyQt5.QtWidgets import QColorDialog, QMessageBox, QTextEdit, QTreeView
 
 zvalue_max = 0.0
 zvalue_increment = 1.0
@@ -681,6 +682,14 @@ class QMainWindow(QtWidgets.QMainWindow):
         #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
         self.setWindowTitle(title)
 
+        # Bottom Dock
+        self._logwindow = QTextEdit()
+        self._logwindow.setReadOnly(True)
+        log.set_logger(QLogger(self._logwindow))
+        self._logdock = QtWidgets.QDockWidget("Log Messages")
+        self._logdock.setWidget(self._logwindow)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self._logdock)
+
         self._scene = QNodeScene(model.objects, model.relations)
         self._view = QNodeView(self._scene)
         self.setCentralWidget(self._view)
@@ -736,7 +745,7 @@ class QMainWindow(QtWidgets.QMainWindow):
             (hide-object object-id (quote boop))
             (show-object object-id (quote boop))))
         """
-        print(lang.eval(lang.read(code)))
+        log.info(lang.eval(lang.read(code)))
 
 class QColorWidget(QtWidgets.QPushButton):
     colorChanged = QtCore.pyqtSignal(QtGui.QColor)
@@ -756,6 +765,24 @@ class QColorWidget(QtWidgets.QPushButton):
     def _on_click(self):
         color = QColorDialog.getColor()
         self._set_color(color)
+
+class QLogger(object):
+    def __init__(self, textbox: QTextEdit):
+        self.textbox: QTextEdit = textbox
+    
+    def _write(self, message):
+        self.textbox.append(message)
+        scrollbar = self.textbox.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+    
+    def info(self, message):
+        self._write("INFO: {0}".format(message))
+    
+    def warn(self, message):
+        self._write("WARN: {0}".format(message))
+    
+    def error(self, message):
+        self._write("ERROR: {0}".format(message))
 
 class QRelationEditor(QtWidgets.QFrame):
     def __init__(self, relation):

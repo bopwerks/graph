@@ -1,8 +1,9 @@
 import sys
 import view
+import PyQt5
 
 def main(argv):
-    app = view.QApplication(argv)
+    app = PyQt5.QtWidgets.QApplication(argv)
     win = view.QMainWindow("Reticulus")
     win.show()
     app.exec_()
