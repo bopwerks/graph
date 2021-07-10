@@ -311,6 +311,9 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         self._dx = 0
         self._dy = 0
     
+    def __repr__(self):
+        return "{0}({1})".format(type(self).__name__, repr(self.widget()))
+    
     def delete(self):
         model.delete_object(self.widget().id)
 
@@ -424,6 +427,9 @@ class QNodeWidget(QtWidgets.QFrame, event.Emitter):
         self._text.setWordWrap(True)
         self._layout.addWidget(self._text)
         self.onNodeUpdate(id)
+    
+    def __repr__(self):
+        return "{0}({1})".format(type(self).__name__, repr(self.id))
 
     def onNodeUpdate(self, object_id):
         object = model.get_object(object_id)

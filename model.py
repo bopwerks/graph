@@ -12,7 +12,7 @@ class VisibilitySuppressor(object):
         self._suppressors = set(suppressors)
     
     def set_visible(self, is_visible, symbol):
-        fn = self._suppressors.remove if is_visible else self._suppressors.add
+        fn = self._suppressors.discard if is_visible else self._suppressors.add
         old_size = len(self._suppressors)
         fn(symbol)
         new_size = len(self._suppressors)

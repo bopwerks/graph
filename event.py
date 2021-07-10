@@ -1,4 +1,6 @@
 import log
+from functools import partial
+
 class Emitter(object):
     def __init__(self):
         self._listeners = {}
@@ -12,6 +14,7 @@ class Emitter(object):
         if event_name not in self._listeners:
             self._listeners[event_name] = set()
         self._listeners[event_name].add(fn)
+        return partial(self.remove_listener, event_name, fn)
 
     def remove_listener(self, event_name, fn):
         listeners = self._listeners.get(event_name, set())
