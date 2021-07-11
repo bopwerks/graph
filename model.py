@@ -161,25 +161,25 @@ class Relation(event.Emitter, VisibilitySuppressor):
         source_object = get_object(srcid)
         outnodes[dstid] = edge_id
         self._outnodes[srcid] = outnodes
-        source_object.set_field("Outnodes", source_object.get_field("Outnodes") + 1)
+        source_object.emit("object_changed", source_object.id)
         
         dest_object = get_object(dstid)
         innodes[srcid] = edge_id
         self._innodes[dstid] = innodes
-        dest_object.set_field("Innodes", dest_object.get_field("Innodes") + 1)
+        dest_object.emit("object_changed", dest_object.id)
 
     def _disconnect(self, srcid, dstid):
         del self._outnodes[srcid][dstid]
         if not self._outnodes[srcid]:
             del self._outnodes[srcid]
         source_object = get_object(srcid)
-        source_object.set_field("Outnodes", source_object.get_field("Outnodes") - 1)
+        source_object.emit("object_changed", source_object.id)
 
         del self._innodes[dstid][srcid]
         if not self._innodes[dstid]:
             del self._innodes[dstid]
         dest_object = get_object(dstid)
-        dest_object.set_field("Innodes", dest_object.get_field("Innodes") - 1)
+        dest_object.emit("object_changed", dest_object.id)
 
     def remove(self, id):
         """Remove all relations into and out of the given object"""
@@ -254,11 +254,12 @@ class CheckBox(Control):
         super().__init__(name)
 
 class Class(event.Emitter, VisibilitySuppressor):
-    def __init__(self, name, *fields):
+    def __init__(self, name, color, *fields):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self)
         self.id = make_id()
         self.name = name
+        self.color = color
         self.fields = fields
     
     def set_visible(self, is_visible, symbol=None):
@@ -293,6 +294,9 @@ class Object(event.Emitter, VisibilitySuppressor):
                 value = values[i]
                 assert field.is_valid(value), "Expected {0}, got {1}".format(field.type, type(value))
                 self.fields.append(value)
+
+    def color(self):
+        return self.klass.color
     
     def visibility_changed(self):
         self.emit("object_changed", self.id)
@@ -328,9 +332,7 @@ class Object(event.Emitter, VisibilitySuppressor):
                     self.emit("object_changed", self.id)
     
     def _class_changed(self, class_id):
-        # TODO: Update fields
-        klass = get_class(class_id)
-        self.set_field("Visible", klass.visible)
+        self.emit("object_changed", self.id)
 
 class collection(list, event.Emitter):
     def __init__(self):
@@ -341,6 +343,7 @@ class collection(list, event.Emitter):
         super().append(object)
         self.emit("object_created", object.id)
         object.add_listener("object_changed", self._object_changed)
+        object.add_listener("class_changed", self._object_changed)
         object.add_listener("edge_added", self._edge_added)
         object.add_listener("edge_removed", self._edge_removed)
         object.add_listener("edge_changed", self._edge_changed)
@@ -348,6 +351,7 @@ class collection(list, event.Emitter):
     
     def remove(self, object):
         object.remove_listener("object_changed", self._object_changed)
+        object.remove_listener("class_changed", self._object_changed)
         object.remove_listener("edge_added", self._edge_added)
         object.remove_listener("edge_removed", self._edge_removed)
         object.remove_listener("edge_changed", self._edge_changed)
@@ -426,12 +430,8 @@ def find_by_id(type, list, id):
 def make_class(name, *custom_fields):
     default_fields = [
         Field("Title", str, ""),
-        Field("Innodes", int, 0),
-        Field("Outnodes", int, 0),
-        Field("Color", Color, Color.random()),
-        Field("Visible", bool, True)
     ]
-    klass = Class(name, *default_fields, *custom_fields)
+    klass = Class(name, Color.random(), *default_fields, *custom_fields)
     classes.append(klass)
     return klass.id
 

@@ -394,8 +394,6 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         event.accept()
 
     def _object_changed(self, object_id):
-        # object = model.get_object(object_id)
-        # self.setVisible(object.get_field("Visible"))
         pass
 
 class QNodeWidget(QtWidgets.QFrame, event.Emitter):
@@ -436,7 +434,7 @@ class QNodeWidget(QtWidgets.QFrame, event.Emitter):
 
         # Set background color
         palette = self.palette()
-        color = object.get_field("Color")
+        color = object.color()
         bgcolor = QtGui.QColor(color.r, color.g, color.b)
         palette.setColor(self.backgroundRole(), bgcolor)
         self.setPalette(palette)
@@ -578,9 +576,10 @@ class QCollectionList(QtWidgets.QListWidget):
     def __init__(self, collection):
         QtWidgets.QListWidget.__init__(self)
         self._collection = collection
-        self._collection.add_listener("object_created", self._object_created)
-        self._collection.add_listener("object_deleted", self._object_deleted)
-        self._collection.add_listener("object_changed", self._object_changed)
+        for source in ["object", "class"]:
+            self._collection.add_listener(source + "_created", self._object_created)
+            self._collection.add_listener(source + "_deleted", self._object_deleted)
+            self._collection.add_listener(source + "_changed", self._object_changed)
         for member in collection:
             self._object_created(member.id, "view")
         self.clicked.connect(self._clicked)
@@ -637,19 +636,25 @@ class QCollectionList(QtWidgets.QListWidget):
         # TODO: Implement drag and drop from this list to the graph
 
     def closeEvent(self, event):
-        self._collection.remove_listener("object_created", self._object_created)
-        self._collection.remove_listener("object_deleted", self._object_deleted)
-        self._collection.remove_listener("object_changed", self._object_changed)
+        for source in ["object", "class"]:
+            self._collection.add_listener(source + "_created", self._object_created)
+            self._collection.add_listener(source + "_deleted", self._object_deleted)
+            self._collection.add_listener(source + "_changed", self._object_changed)
+        # self._collection.remove_listener("object_created", self._object_created)
+        # self._collection.remove_listener("object_deleted", self._object_deleted)
+        # self._collection.remove_listener("object_changed", self._object_changed)
 
 class QNodePalette(QCollectionList):
-    def __init__(self, collection):
+    def __init__(self, collection, edit):
         super().__init__(collection)
+        self._edit = edit
         self.setDragEnabled(True)
         self.setDragDropMode(QtWidgets.QAbstractItemView.DragOnly)
 
     def member_clicked(self, member, is_checked):
         if member.is_visible() != is_checked:
             member.set_visible(is_checked)
+        self._edit(member)
 
     def startDrag(self, supportedActions):
         item = self.currentItem()
@@ -702,7 +707,7 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         # Left Dock
         self._palette = QtWidgets.QDockWidget("Classes")
-        self._palette.setWidget(QNodePalette(model.classes))
+        self._palette.setWidget(QNodePalette(model.classes, lambda klass: self._editor.setWidget(QClassEditor(klass))))
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
 
         self._relationList = QtWidgets.QDockWidget("Relations")
@@ -873,6 +878,30 @@ class QRelationEditor(QtWidgets.QFrame):
     def _on_delete_changed(self):
         self._relation.on_delete = self._on_delete.toPlainText()
         self._relation.emit("object_changed", self._relation.id)
+
+class QClassEditor(QtWidgets.QFrame):
+    def __init__(self, klass):
+        QtWidgets.QFrame.__init__(self)
+        self._layout = QtWidgets.QFormLayout()
+        self._klass: model.Class = klass
+
+        self._name = QtWidgets.QLineEdit(klass.name)
+        self._name.textChanged.connect(self._on_name_changed)
+        self._layout.addRow("&Name", self._name)
+
+        self._color = QColorWidget(QtGui.QColor(klass.color.r, klass.color.g, klass.color.b))
+        self._color.colorChanged.connect(self._on_color_changed)
+        self._layout.addRow("&Color", self._color)
+
+        self.setLayout(self._layout)
+    
+    def _on_name_changed(self):
+        self._klass.name = self._name.text()
+        self._klass.emit("class_changed", self._klass.id)
+    
+    def _on_color_changed(self, color: QtGui.QColor):
+        self._klass.color = model.Color(color.red(), color.green(), color.blue())
+        self._klass.emit("class_changed", self._klass.id)
 
 def make_tree(key, *children):
     parent = {
