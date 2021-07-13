@@ -211,6 +211,10 @@ class Relation(event.Emitter, VisibilitySuppressor):
                 if not edge_id in visited:
                     yield edge_id
                     visited.add(edge_id)
+    
+    def clear(self):
+        for edge_id in self.all_edges():
+            self.remove(edge_id)
 
 class Field(object):
     def __init__(self, name, type, initial_value):
@@ -339,9 +343,9 @@ class collection(list, event.Emitter):
         list.__init__(self)
         event.Emitter.__init__(self)
     
-    def append(self, object):
+    def append(self, object, source="model"):
         super().append(object)
-        self.emit("object_created", object.id)
+        self.emit("object_created", object.id, source)
         object.add_listener("object_changed", self._object_changed)
         object.add_listener("class_changed", self._object_changed)
         object.add_listener("edge_added", self._edge_added)
@@ -349,7 +353,7 @@ class collection(list, event.Emitter):
         object.add_listener("edge_changed", self._edge_changed)
         object.add_listener("relation_changed", self._relation_changed)
     
-    def remove(self, object):
+    def remove(self, object, source="model"):
         object.remove_listener("object_changed", self._object_changed)
         object.remove_listener("class_changed", self._object_changed)
         object.remove_listener("edge_added", self._edge_added)
@@ -357,7 +361,7 @@ class collection(list, event.Emitter):
         object.remove_listener("edge_changed", self._edge_changed)
         object.remove_listener("relation_changed", self._relation_changed)
         super().remove(object)
-        self.emit("object_deleted", object.id)
+        self.emit("object_deleted", object.id, source)
     
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
@@ -398,12 +402,12 @@ class collection_map(event.Emitter):
         self.emit("object_created", object.id, source)
         object.add_listener("object_changed", self._object_changed)
     
-    def remove(self, object):
+    def remove(self, object, source):
         class_id = object.klass.id
         assert class_id in self._objects
         self._objects[class_id].remove(object)
         object.remove_listener("object_changed", self._object_changed)
-        self.emit("object_deleted", object.id)
+        self.emit("object_deleted", object.id, source)
     
     def _object_changed(self, object_id):
         self.emit("object_changed", object_id)
@@ -441,9 +445,9 @@ def get_class(class_id):
 def delete_class(class_id):
     global objects
     klass = get_class(class_id)
-    objects = [o for o in objects if o.klass == klass]
-    for object in objects:
-        delete_object(object)
+    object_ids = [o.id for o in objects if o.klass == klass]
+    for object_id in object_ids:
+        delete_object(object_id)
     classes.remove(klass)
 
 def make_object(class_id, *values, source="model"):
@@ -459,14 +463,14 @@ def get_objects_by_class(class_id):
 def get_object(object_id):
     return find_by_id("object", objects, object_id)
 
-def delete_object(object_id):
+def delete_object(object_id, source="model"):
     # Remove all relations involving this object
     for relation in relations:
         relation.remove(object_id)
     object = get_object(object_id)
     klass = object.klass
     klass.remove_listener("class_changed", object._class_changed)
-    objects.remove(object)
+    objects.remove(object, source)
 
 def make_relation(name, *args, **kwargs):
     relation = Relation(name, *args, **kwargs)
@@ -509,35 +513,21 @@ tag_class = make_class("Tag")
 goal_class = make_class(
     "Goal",
 )
-# goal1 = make_object(goal_class, "Be healthy")
 
 task_class = make_class(
     "Task",
     Field("Urgent", bool, False),
     Field("Important", bool, False),
 )
-# task1 = make_object(task_class, "Exercise")
-precedes = make_relation("precedes")
-# task2 = make_object(task_class, "Eat Right")
-# connect(precedes, task1, task2)
-# connect(precedes, task2, goal1)
 
-# tag_class = make_class("Tag")
-# tag1 = make_object(tag_class, "health")
-# tag2 = make_object(tag_class, "exercise")
+precedes = make_relation("precedes")
+
 is_child_of = make_relation(
     "is a child of",
     directed=True,
     acyclic=True,
     max_outnodes=1
 )
-# connect(is_child_of, tag2, tag1)
-
-# is_tagged_by = make_relation("tags")
-# connect(is_tagged_by, goal1, tag1)
-
-# connect(is_tagged_by, task1, tag2)
-# connect(is_tagged_by, task2, tag1)
 
 def outnodes(object_id, *relation_ids):
     outnode_ids = set()
@@ -590,13 +580,6 @@ def has_path_to(dest_id, *relation_ids):
         return source_object.klass.id != tag_class and has_path(source_object.id, dest_id, *relation_ids)
     return fn
 
-# def tagged_with(tag_name):
-#     # Find tag with name
-#     matches = [o for o in objects if o.klass.id == tag_class and o.get_field("Title") == tag_name]
-#     assert len(matches) == 1
-#     tag_object = matches[0]
-#     return has_path_to(tag_object.id, is_child_of, is_tagged_by)
-
 def land(*operands):
     def fn(object):
         for operand in operands:
@@ -612,21 +595,6 @@ def lor(*operands):
                 return True
         return False
     return fn
-
-# filter1 = eq(field("Innodes"), const(0))
-# for object in filter(filter1, objects):
-#     print(object)
-
-# filter2 = land(has_type(task_class), tagged_with("health"))
-# for object in filter(filter2, objects):
-#    print(object)
-
-# def get_object_tags(object_id):
-#     tag_relation = get_relation(is_tagged_by)
-#     return list(tag_relation._outnodes.get(object_id, []))
-
-# for tag_id in get_object_tags(goal1):
-#     print(get_object(tag_id))
 
 def innodes(object_id, relation_id):
     "Returns the number of nodes pointing the given node via the given edge type."

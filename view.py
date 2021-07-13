@@ -7,7 +7,7 @@ import event
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
-from PyQt5.QtWidgets import QColorDialog, QMessageBox, QTextEdit, QTreeView
+from PyQt5.QtWidgets import QColorDialog, QHBoxLayout, QListWidget, QMessageBox, QPushButton, QTextEdit, QTreeView, QWidget
 
 zvalue_max = 0.0
 zvalue_increment = 1.0
@@ -250,7 +250,7 @@ class QCollectionFilter(QtWidgets.QTableWidget):
     def member_added(self, member, row):
         pass
 
-    def _object_deleted(self, object_id):
+    def _object_deleted(self, object_id, source):
         if object_id in self._matches:
             # Remove the object from the widget
             row = self._matches_list.index(object_id)
@@ -267,7 +267,7 @@ class QCollectionFilter(QtWidgets.QTableWidget):
             else:
                 self._object_created(object_id, "view")
         else:
-            self._object_deleted(object_id)
+            self._object_deleted(object_id, "view")
 
 class QObjectFilter(QCollectionFilter):
     def __init__(self, collection, predicate):
@@ -548,7 +548,7 @@ class QNodeScene(QtWidgets.QGraphicsScene):
             graphical_object.setVisible(model_object.is_visible())
             self.addItem(graphical_object)
 
-    def _object_deleted(self, object_id):
+    def _object_deleted(self, object_id, source):
         object = get_object(object_id)
         self.removeItem(object)
     
@@ -621,11 +621,17 @@ class QCollectionList(QtWidgets.QListWidget):
             [self.item(row) for row in range(self.count())]
         ))[0]
         return item
+    
+    def _id_to_row(self, member_id):
+        row = list(filter(
+            lambda row: self.item(row).data(QtCore.Qt.ItemDataRole.UserRole) == member_id,
+            range(self.count())
+        ))[0]
+        return row
 
-    def _object_deleted(self, member_id):
-        item = self._id_to_item(member_id)
-        self._members.remove(member_id)
-        self.takeItem(item.row())
+    def _object_deleted(self, member_id, source):
+        row = self._id_to_row(member_id)
+        self.takeItem(row)
         self.member_removed()
 
     def _object_changed(self, member_id):
@@ -644,7 +650,7 @@ class QCollectionList(QtWidgets.QListWidget):
         # self._collection.remove_listener("object_deleted", self._object_deleted)
         # self._collection.remove_listener("object_changed", self._object_changed)
 
-class QNodePalette(QCollectionList):
+class QClassList(QCollectionList):
     def __init__(self, collection, edit):
         super().__init__(collection)
         self._edit = edit
@@ -684,6 +690,63 @@ class QRelationList(QCollectionList):
             member.set_visible(is_checked)
         self._edit(member)
 
+class QCollectionPalette(QtWidgets.QWidget):
+    def __init__(self, list_widget):
+        QtWidgets.QWidget.__init__(self)
+        self._list: QListWidget = list_widget
+
+        button_layout = QHBoxLayout()
+
+        add_button = QPushButton("+")
+        add_button.clicked.connect(self._on_add)
+        button_layout.addWidget(add_button)
+
+        del_button = QPushButton("-")
+        del_button.clicked.connect(self._on_del)
+        button_layout.addWidget(del_button)
+        
+        button_panel = QtWidgets.QWidget()
+        button_panel.setLayout(button_layout)
+
+        palette_layout = QtWidgets.QVBoxLayout()
+        palette_layout.addWidget(button_panel)
+        palette_layout.addWidget(list_widget)
+        self.setLayout(palette_layout)
+    
+    def _on_add(self):
+        self.on_add()
+
+    def _on_del(self):
+        self.on_delete(self._list.currentItem())
+    
+    def on_add(self, item):
+        pass
+
+    def on_delete(self, item):
+        pass
+
+class QClassPalette(QCollectionPalette):
+    def __init__(self, classes, edit):
+        QCollectionPalette.__init__(self, QClassList(classes, edit))
+    
+    def on_add(self):
+        class_id = model.make_class("Class {0}".format(self._list.count()))
+    
+    def on_delete(self, item):
+        class_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        model.delete_class(class_id)
+
+class QRelationPalette(QCollectionPalette):
+    def __init__(self, relations, edit):
+        QCollectionPalette.__init__(self, QRelationList(relations, edit))
+    
+    def on_add(self):
+        relation_id = model.make_relation("relation {0}".format(self._list.count()))
+    
+    def on_delete(self, item):
+        relation_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        model.delete_relation(relation_id)
+
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
@@ -707,13 +770,13 @@ class QMainWindow(QtWidgets.QMainWindow):
 
         # Left Dock
         self._palette = QtWidgets.QDockWidget("Classes")
-        self._palette.setWidget(QNodePalette(model.classes, lambda klass: self._editor.setWidget(QClassEditor(klass))))
+        edit_class = lambda klass: self._editor.setWidget(QClassEditor(klass))
+        self._palette.setWidget(QClassPalette(model.classes, edit_class))
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
 
         self._relationList = QtWidgets.QDockWidget("Relations")
-        show_all = lambda member: True
-        relationList = QRelationList(model.relations, lambda relation: self._editor.setWidget(QRelationEditor(relation)))
-        self._relationList.setWidget(relationList)
+        edit_relation = lambda relation: self._editor.setWidget(QRelationEditor(relation))
+        self._relationList.setWidget(QRelationPalette(model.relations, edit_relation))
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
 
         self._list = QtWidgets.QDockWidget("Objects")
@@ -923,15 +986,15 @@ class QTagModel(QtCore.QAbstractItemModel):
     def __init__(self, relation=None, parent=None):
         super().__init__(parent)
         self._relation = relation
-        self._root = make_tree("Engle",
-            make_tree("David"),
-            make_tree("Jana"),
-            make_tree("Tara",
-                make_tree("Ora"),
-                make_tree("Daley")
+        self._root = make_tree("A",
+            make_tree("B"),
+            make_tree("C"),
+            make_tree("D",
+                make_tree("E"),
+                make_tree("F")
             ),
-            make_tree("Bri",
-                make_tree("Mavrik")
+            make_tree("G",
+                make_tree("H")
             )
         )
 
