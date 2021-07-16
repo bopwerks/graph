@@ -405,7 +405,7 @@ class QNodeWidget(QtWidgets.QFrame, event.Emitter):
         self.setAutoFillBackground(True)
         self._layout = QtWidgets.QVBoxLayout(self)
 
-        self._pixmap = QtGui.QPixmap(".\\pic.jpg")
+        self._pixmap = QtGui.QPixmap("./pic.jpg")
         self._image = QtWidgets.QLabel()
         #policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         #self._image.setSizePolicy(policy)
