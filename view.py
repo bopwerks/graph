@@ -238,7 +238,12 @@ class QCollectionFilter(QtWidgets.QTableWidget):
 
     def _object_created(self, object_id, source):
         object = self._collection.get_member(object_id)
-        if self._predicate(object_id):
+        try:
+            is_match = self._predicate(object_id)
+        except Exception as e:
+            log.error(e.message)
+            is_match = False
+        if is_match:
             # Add the object to the widget
             self._matches_list.append(object_id)
             self._matches.add(object_id)
@@ -259,7 +264,12 @@ class QCollectionFilter(QtWidgets.QTableWidget):
             self._matches.remove(object_id)
 
     def _object_changed(self, object_id):
-        if self._predicate(object_id):
+        try:
+            is_match = self._predicate(object_id)
+        except Exception as e:
+            log.error(e.args[0])
+            is_match = False
+        if is_match:
             if object_id in self._matches:
                 # TODO: Update the object in the display
                 # NB: Changing table items here will cause an infinite loop

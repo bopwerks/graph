@@ -202,19 +202,21 @@ class Relation(event.Emitter, VisibilitySuppressor):
         outnodes = dict(self._outnodes)
         visited = set()
         for dest_id, in_edges in innodes.items():
-            for edge_id in in_edges.values():
+            in_edges = list(in_edges.values())
+            for edge_id in in_edges:
                 if not edge_id in visited:
                     yield edge_id
                     visited.add(edge_id)
         for dest_id, out_edges in outnodes.items():
-            for edge_id in out_edges.values():
+            out_edges = list(out_edges.values())
+            for edge_id in out_edges:
                 if not edge_id in visited:
                     yield edge_id
                     visited.add(edge_id)
     
     def clear(self):
         for edge_id in self.all_edges():
-            self.remove(edge_id)
+            self.disconnect(edge_id)
 
 class Field(object):
     def __init__(self, name, type, initial_value):
