@@ -1,5 +1,6 @@
 import operator
 import model
+import log
 
 """
 ;; Example code for implementing a "Tag" object whose checkbox field
@@ -234,20 +235,19 @@ def do_nothing(*args):
 @builtin
 def innodes(object_id, relation_id):
     "Returns the number of nodes with edges pointing to an object."
-    return list(model.innodes(object_id, relation_id))
+    try:
+        innodes_list = list(model.innodes(object_id, relation_id))
+    except:
+        innodes_list = []
+    return innodes_list
 
 @builtin
 def outnodes(object_id, relation_id):
     "Returns the number of nodes with edges pointing from an object."
     return list(model.outnodes(object_id, relation_id))
 
-try:
-    # print(eval(read("(remove-if (lambda (x) (= x 3)) (list 1 3 2 3 4 3))")))
-    # print(eval(read("(and 1 2 3 0)")))
-    # print(eval(read("(or 1 2 3 0)")))
-    # print(eval(read("(map (lambda (x) (+ x 1)) (list 1 2 3 4))")))
-    # print(eval(read("(any identity (list 1 2 3 0))")))
-    # print(eval(read("(all identity (list 1 2 3 0))")))
-    pass
-except Exception as e:
-    print("Error: {0}".format(e))
+@builtin
+def echo(*args):
+    "Prints its symbolic and numeric arguments separated by a space."
+    params = list(map(str, args))
+    log.info(' '.join(params))

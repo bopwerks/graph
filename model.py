@@ -1,5 +1,7 @@
 import event
 import random
+import lang
+import log
 
 _id = 0
 def make_id():
@@ -70,8 +72,8 @@ class Relation(event.Emitter, VisibilitySuppressor):
         self.acyclic = acyclic
         self._max_innodes = max_innodes
         self._max_outnodes = max_outnodes
-        self.on_add = "do-nothing"
-        self.on_delete = "do-nothing"
+        self.on_add = "do-nothing" # "(lambda (edge-id) (echo (quote Added) edge-id))"
+        self.on_delete = "do-nothing" # "(lambda (edge-id) (echo (quote Removed) edge-id))"
         self.reverse = False
         self._innodes = {}
         self._outnodes = {}
@@ -105,6 +107,10 @@ class Relation(event.Emitter, VisibilitySuppressor):
         _edges[edge.id] = edge
 
         self.emit("edge_added", self.id, edge.id, srcid, dstid, source)
+        try:
+            lang.eval(lang.read(self.on_add))(edge.id)
+        except Exception as e:
+            log.error(e.message)
         return edge.id
     
     def _edge_changed(self, edge_id):
@@ -136,6 +142,10 @@ class Relation(event.Emitter, VisibilitySuppressor):
 
         edge.remove_listener("edge_changed", self._edge_changed)
         self.emit("edge_removed", edge.id)
+        try:
+            lang.eval(lang.read(self.on_delete))(edge.id)
+        except Exception as e:
+            log.error(e.message)
         del _edges[edge.id]
     
     def roots(self):

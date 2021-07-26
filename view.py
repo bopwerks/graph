@@ -238,12 +238,7 @@ class QCollectionFilter(QtWidgets.QTableWidget):
 
     def _object_created(self, object_id, source):
         object = self._collection.get_member(object_id)
-        try:
-            is_match = self._predicate(object_id)
-        except Exception as e:
-            log.error(e.message)
-            is_match = False
-        if is_match:
+        if self._predicate(object_id):
             # Add the object to the widget
             self._matches_list.append(object_id)
             self._matches.add(object_id)
@@ -255,6 +250,9 @@ class QCollectionFilter(QtWidgets.QTableWidget):
     def member_added(self, member, row):
         pass
 
+    def member_changed(self, member, row):
+        pass
+
     def _object_deleted(self, object_id, source):
         if object_id in self._matches:
             # Remove the object from the widget
@@ -264,16 +262,11 @@ class QCollectionFilter(QtWidgets.QTableWidget):
             self._matches.remove(object_id)
 
     def _object_changed(self, object_id):
-        try:
-            is_match = self._predicate(object_id)
-        except Exception as e:
-            log.error(e.args[0])
-            is_match = False
-        if is_match:
+        object = self._collection.get_member(object_id)
+        if self._predicate(object_id):
             if object_id in self._matches:
-                # TODO: Update the object in the display
-                # NB: Changing table items here will cause an infinite loop
-                pass
+                row = self._matches_list.index(object_id)
+                self.member_changed(object, row)
             else:
                 self._object_created(object_id, "view")
         else:
@@ -299,6 +292,15 @@ class QObjectFilter(QCollectionFilter):
         self.setItem(row, 0, class_item)
         object_item = QtWidgets.QTableWidgetItem(object_title)
         self.setItem(row, 1, object_item)
+
+    def member_changed(self, member, row):
+        # When cellChanged is connected to to self._cellChanged, calls to self.setItem()
+        # call the target object's set_field() method, which in turn calls its object_changed
+        # event handler, which would then result in this callback being invoked repeatedly.
+        # We temporarily disconnect the handler to prevent this behavior.
+        self.cellChanged.disconnect(self._cellChanged)
+        self.member_added(member, row)
+        self.cellChanged.connect(self._cellChanged)
 
     def _cellChanged(self, row, col):
         object_id = self._matches_list[row]
@@ -824,12 +826,15 @@ class QMainWindow(QtWidgets.QMainWindow):
         # b = model.make_object(model.tag_class, "tag B")
         # model.connect(model.precedes, a, b)
         code = """
+        (echo 1 (quote hello) 3 4)
+        """
+        """
         (let ((object-id (car (all-objects))))
           (if (object-visible? object-id)
             (hide-object object-id (quote boop))
             (show-object object-id (quote boop))))
         """
-        log.info(lang.eval(lang.read(code)))
+        lang.eval(lang.read(code))
 
 class QColorWidget(QtWidgets.QPushButton):
     colorChanged = QtCore.pyqtSignal(QtGui.QColor)
