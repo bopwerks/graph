@@ -617,3 +617,56 @@ def outnodes(object_id, relation_id):
     "Returns the number of nodes pointing the given node via the given edge type."
     relation: Relation = get_relation(relation_id)
     return relation.outnodes(object_id)
+
+class ContainerDelegate(object):
+    def on_member_added(self, id):
+        pass
+
+    def on_member_changed(self, id):
+        pass
+
+    def on_member_removed(self, id):
+        pass
+
+class ObjectFilterContainer(dict):
+    def __init__(self):
+        dict.__init__(self)
+        self._delegates = set()
+    
+    def add_delegate(self, delegate: ContainerDelegate):
+        self._delegates.add(delegate)
+    
+    def remove_delegate(self, delegate: ContainerDelegate):
+        self._delegates.remove(delegate)
+    
+    def __setitem__(self, id, filter):
+        dict.__setitem__(self, id, filter)
+        for delegate in self._delegates:
+            delegate.on_member_added(id)
+    
+    def __delitem__(self, id):
+        for delegate in self._delegates:
+            delegate.on_member_removed(id)
+        dict.__delitem__(self, id)
+
+object_filters = ObjectFilterContainer()
+id_entity_map = {}
+
+class ObjectFilter(object):
+    def __init__(self, title, predicate):
+        self.id = make_id()
+        self.title = title
+        self.predicate = predicate
+
+def make_object_filter(title, predicate):
+    filter = ObjectFilter(title, predicate)
+    object_filters[filter.id] = filter
+    id_entity_map[filter.id] = filter
+    return filter.id
+
+def delete_object_filter(object_filter_id):
+    del object_filters[object_filter_id]
+    del id_entity_map[object_filter_id]
+
+def get_object_filter(object_filter_id):
+    return object_filters[object_filter_id]

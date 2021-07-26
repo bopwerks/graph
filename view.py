@@ -12,7 +12,6 @@ from PyQt5.QtWidgets import QColorDialog, QHBoxLayout, QListWidget, QMessageBox,
 zvalue_max = 0.0
 zvalue_increment = 1.0
 newedge = None
-nodelist = None
 
 no_selected_item = None
 __selected_item = no_selected_item
@@ -217,11 +216,33 @@ class QEdge(QArrow):
 
         set_selected_item(self)
 
+class QCollectionFilterDock(QtWidgets.QDockWidget):
+    def __init__(self, title):
+        QtWidgets.QDockWidget.__init__(self, title)
+        self.to_be_deleted = False
+    
+    def setWidget(self, widget):
+        super().setWidget(widget)
+        self.id = widget.id
+    
+    def closeEvent(self, event):
+        if not self.to_be_deleted:
+            event.ignore()
+            self.to_be_deleted = True
+            timer = QtCore.QTimer(self)
+            timer.setSingleShot(True)
+            def delete():
+                model.delete_object_filter(self.id)
+            timer.timeout.connect(delete)
+            timer.start(0)
+
 class QCollectionFilter(QtWidgets.QTableWidget):
-    def __init__(self, collection, predicate):
+    def __init__(self, collection, object_filter_id):
         #super().__init__(0, 2)
         super().__init__()
-        self._predicate = predicate
+        self.id = object_filter_id
+        filter = model.get_object_filter(object_filter_id)
+        self._predicate = filter.predicate
         self._collection = collection
         self._matches = set()
         self._matches_list = []
@@ -273,8 +294,8 @@ class QCollectionFilter(QtWidgets.QTableWidget):
             self._object_deleted(object_id, "view")
 
 class QObjectFilter(QCollectionFilter):
-    def __init__(self, collection, predicate):
-        super().__init__(collection, predicate)
+    def __init__(self, collection, object_filter_id):
+        super().__init__(collection, object_filter_id)
         self.setColumnCount(2)
         header_class = QtWidgets.QTableWidgetItem("Class")
         header_class.setTextAlignment(QtCore.Qt.AlignLeft)
@@ -759,82 +780,103 @@ class QRelationPalette(QCollectionPalette):
         relation_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
         model.delete_relation(relation_id)
 
+def make_log_dock():
+    textbox = QTextEdit()
+    textbox.setReadOnly(True)
+    log.set_logger(QLogger(textbox))
+    dock = QtWidgets.QDockWidget("Log Messages")
+    dock.setWidget(textbox)
+    return dock
+
+def make_class_dock(editor):
+    dock = QtWidgets.QDockWidget("Classes")
+    edit = lambda klass: editor.setWidget(QClassEditor(klass))
+    dock.setWidget(QClassPalette(model.classes, edit))
+    return dock
+
+def make_relation_dock(editor):
+    dock = QtWidgets.QDockWidget("Relations")
+    edit = lambda relation: editor.setWidget(QRelationEditor(relation))
+    dock.setWidget(QRelationPalette(model.relations, edit))
+    return dock
+
+def make_object_dock(object_filter_id):
+    filter = model.get_object_filter(object_filter_id)
+    dock = QCollectionFilterDock(filter.title)
+    dock.id = object_filter_id
+    list = QObjectFilter(model.objects, object_filter_id)
+    dock.setWidget(list)
+    return dock
+
+def make_tag_dock():
+    model = QTagModel()
+    view = QTagView(model)
+    dock = QtWidgets.QDockWidget("Tags")
+    dock.setWidget(view)
+    return dock
+
+class ObjectFilterDelegate(model.ContainerDelegate):
+    def __init__(self, window):
+        self.window = window
+    
+    def on_member_added(self, id):
+        self.window.add_object_filter(id)
+    
+    def on_member_removed(self, id):
+        self.window.remove_object_filter(id)
+
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
-        global nodelist
 
         # set size to 70% of screen
         #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
         self.setWindowTitle(title)
+        scene = QNodeScene(model.objects, model.relations)
+        view = QNodeView(scene)
+        self.setCentralWidget(view)
 
-        # Bottom Dock
-        self._logwindow = QTextEdit()
-        self._logwindow.setReadOnly(True)
-        log.set_logger(QLogger(self._logwindow))
-        self._logdock = QtWidgets.QDockWidget("Log Messages")
-        self._logdock.setWidget(self._logwindow)
-        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self._logdock)
-
-        self._scene = QNodeScene(model.objects, model.relations)
-        self._view = QNodeView(self._scene)
-        self.setCentralWidget(self._view)
-
-        # Left Dock
-        self._palette = QtWidgets.QDockWidget("Classes")
-        edit_class = lambda klass: self._editor.setWidget(QClassEditor(klass))
-        self._palette.setWidget(QClassPalette(model.classes, edit_class))
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._palette)
-
-        self._relationList = QtWidgets.QDockWidget("Relations")
-        edit_relation = lambda relation: self._editor.setWidget(QRelationEditor(relation))
-        self._relationList.setWidget(QRelationPalette(model.relations, edit_relation))
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._relationList)
-
-        self._list = QtWidgets.QDockWidget("Objects")
-        show_actionable = lang.eval(lang.read("(lambda (object-id) (zero? (length (innodes object-id 4))))"))
-        nodelist = QObjectFilter(model.objects, show_actionable)
-        self._list.setWidget(nodelist)
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self._list)
-
-        # Right Dock
-        self._tagmodel = QTagModel()
-        self._tagview = QTagView(self._tagmodel)
-        self._tagdock = QtWidgets.QDockWidget("Tags")
-        self._tagdock.setWidget(self._tagview)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._tagdock)
-
-        self._editor = QtWidgets.QDockWidget("Editor")
-        #self._editor.setWidget(QRelationEditor())
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self._editor)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, make_tag_dock())
+        editor = QtWidgets.QDockWidget("Editor")
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, editor)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, make_class_dock(editor))
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, make_relation_dock(editor))
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, make_log_dock())
 
         self._toolbar = self.addToolBar("Task")
-        self._addButton("&New Object", QtWidgets.QStyle.SP_FileIcon, self._onNewNode)
-        #self._addButton("&Save Graph", QtWidgets.QStyle.SP_DialogSaveButton, self._onSave)
-        #self._addButton("&Load Graph", QtWidgets.QStyle.SP_DialogOpenButton, self._onLoad)
-        self._toolbar.addSeparator()
+        self.add_button("&New Object", QtWidgets.QStyle.SP_FileIcon, self._on_button_click)
 
-    def _addButton(self, text, icontype, callback):
+        model.object_filters.add_delegate(ObjectFilterDelegate(self))
+        self._object_filters = {}
+        self._last_object_filter = 0
+
+    def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
         action = QtWidgets.QAction(icon, text, self)
         action.triggered.connect(callback)
         action.setIconVisibleInMenu(True)
         self._toolbar.addAction(action)
+
+    def add_object_filter(self, id):
+        dock = make_object_dock(id)
+        if not self._object_filters:
+            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+        else:
+            last_id = max(map(lambda qfilter: qfilter.id, self._object_filters.values()))
+            last_dock = self._object_filters[last_id]
+            self.tabifyDockWidget(last_dock, dock)
+        self._object_filters[id] = dock
     
-    def _onNewNode(self, *args):
-        # a = model.make_object(model.tag_class, "tag A")
-        # b = model.make_object(model.tag_class, "tag B")
-        # model.connect(model.precedes, a, b)
-        code = """
-        (echo 1 (quote hello) 3 4)
-        """
-        """
-        (let ((object-id (car (all-objects))))
-          (if (object-visible? object-id)
-            (hide-object object-id (quote boop))
-            (show-object object-id (quote boop))))
-        """
-        lang.eval(lang.read(code))
+    def remove_object_filter(self, id):
+        dock = self._object_filters[id]
+        dock.close()
+        del self._object_filters[id]
+    
+    def _on_button_click(self, *args):
+        model.make_object_filter(
+            "Actionable {0}".format(len(self._object_filters)+1),
+            lang.eval(lang.read("(lambda (object-id) (zero? (length (innodes object-id 4))))"))
+        )
 
 class QColorWidget(QtWidgets.QPushButton):
     colorChanged = QtCore.pyqtSignal(QtGui.QColor)

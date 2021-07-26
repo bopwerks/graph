@@ -251,3 +251,11 @@ def echo(*args):
     "Prints its symbolic and numeric arguments separated by a space."
     params = list(map(str, args))
     log.info(' '.join(params))
+
+@builtin("make-object-filter")
+def make_object_filter(title, predicate):
+    return model.make_object_filter(title, predicate)
+
+@builtin("delete-object-filter")
+def delete_object_filter(object_filter_id):
+    model.delete_object_filter(object_filter_id)
