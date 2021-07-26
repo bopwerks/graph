@@ -925,6 +925,7 @@ class QRelationEditor(QtWidgets.QFrame):
 
         self._on_delete = QtWidgets.QTextEdit()
         self._on_delete.setText(relation.on_delete)
+        self._on_delete.textChanged.connect(self._on_delete_changed)
         self._layout.addRow("On Delete", self._on_delete)
 
         self.setLayout(self._layout)
