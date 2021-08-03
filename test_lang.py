@@ -172,6 +172,30 @@ def test_read_list_nested_elt():
         lexer = Lexer(br)
         expr = read_sexpr(lexer)
         assert expr == [3, "hello world", [Symbol("hello"), 123]]
+# (lambda (object-id) (zero? (length (innodes object-id 4))))
+
+def test_read_list_nested_elt():
+    with io.StringIO('(lambda (object-id) (zero? (length (innodes object-id 4))))') as fp:
+        br = BufferedReader(fp)
+        lexer = Lexer(br)
+        expr = read_sexpr(lexer)
+        assert expr == [
+            Symbol("lambda"),
+            [
+                Symbol("object-id")
+            ],
+            [
+                Symbol("zero?"),
+                [
+                    Symbol("length"),
+                    [
+                        Symbol("innodes"),
+                        Symbol("object-id"),
+                        4
+                    ],
+                ],
+            ],
+        ]
 
 # Evaluator
 

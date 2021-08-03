@@ -2,6 +2,7 @@ import operator
 import model
 import log
 import io
+import string
 
 """
 ;; Example code for implementing a "Tag" object whose checkbox field
@@ -271,9 +272,9 @@ class Lexer(object):
         for ch in str:
             self.match_any(ch)
 
-whitespace = " \r\n\t"
-letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-digits = "0123456789"
+# whitespace = " \r\n\t"
+# letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+# digits = "0123456789"
 
 class State(object):
     COMMENT     = 1
@@ -301,9 +302,9 @@ def read_lexeme(br):
             elif ch == '"':
                 state = State.STRING
                 br.get()
-            elif ch in letters:
+            elif ch in string.ascii_letters:
                 state = State.SYMBOL
-            elif ch in digits or ch == '.':
+            elif ch in string.digits or ch == '.':
                 state = State.NUMBER
             elif ch == '(':
                 br.get()
@@ -311,7 +312,7 @@ def read_lexeme(br):
             elif ch == ')':
                 br.get()
                 return Lexeme.right_paren()
-            elif ch not in whitespace:
+            elif ch not in string.whitespace:
                 raise SyntaxError()
             else:
                 br.get()
@@ -325,7 +326,7 @@ def read_lexeme(br):
             if br.eof():
                 return Lexeme.number(token)
             ch = br.peek()
-            if ch in digits:
+            if ch in string.digits:
                 token += br.get()
             else:
                 return Lexeme.number(token)
@@ -349,7 +350,7 @@ def read_lexeme(br):
             if br.eof():
                 return Lexeme.symbol(token)
             ch = br.peek()
-            if ch in letters or ch in digits:
+            if ch in string.ascii_letters or ch in string.digits or ch in "-_?":
                 token += br.get()
             else:
                 return Lexeme.symbol(token)
