@@ -275,54 +275,6 @@ whitespace = " \r\n\t"
 letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 digits = "0123456789"
 
-def read_comment(lexer):
-    lexer.match(";;")
-    done = False
-    while not done:
-        ch = lexer.get()
-        done = (ch == '\n')
-    return read_whitespace
-
-def read_symbol(lexer):
-    done = False
-    symbol = lexer.match(letters)
-    while not done:
-        symbol += lexer
-        ch = lexer.peek()
-        done = ch in letters or ch in numbers
-        if not done:
-            lexer.match(ch)
-
-def read_quote(lexer):
-    pass
-
-def read_number(lexer):
-    pass
-
-def read_list(lexer):
-    pass
-
-def read_string(lexer):
-    pass
-
-def read_whitespace(lexer):
-    while not lexer.eof():
-        ch = lexer.peek()
-        if ch == ';':
-            return read_comment
-        elif ch == '\'':
-            return read_quote
-        elif ch == '"':
-            return read_string
-        elif ch in letters:
-            return read_symbol
-        elif ch in numbers or ch == '.':
-            return read_number
-        elif ch == '(':
-            return read_list
-        elif ch not in whitespace:
-            raise SyntaxError()
-
 class State(object):
     COMMENT     = 1
     NUMBER      = 3
