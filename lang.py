@@ -13,38 +13,6 @@ import io
         (show-objects tagged-objects object-id))))
 """
 
-def _tokenize(str):
-    "Convert a string into a list of tokens."
-    return str.replace('(', ' ( ').replace(')', ' ) ').split()
-
-def _atom(token):
-    "Numbers become numbers; every other token is a symbol."
-    try: return int(token)
-    except ValueError:
-        try: return float(token)
-        except ValueError:
-            return str(token)
-
-def _read_from_tokens(tokens):
-    "Read an expression from a sequence of tokens."
-    if len(tokens) == 0:
-        raise SyntaxError('unexpected EOF')
-    token = tokens.pop(0)
-    if token == '(':
-        L = []
-        while tokens[0] != ')':
-            L.append(_read_from_tokens(tokens))
-        tokens.pop(0) # pop off ')'
-        return L
-    elif token == ')':
-        raise SyntaxError('unexpected )')
-    else:
-        return _atom(token)
-
-def read(str):
-    "Convert a string into an s-expression."
-    return _read_from_tokens(_tokenize(str))
-
 class Env(dict):
     "An environment: a dict of {'var': val} pairs, with an outer Env."
     def __init__(self, parms=(), args=(), outer=None):
