@@ -56,10 +56,11 @@ class LookupException(Exception):
 
 _edges = {}
 def get_edge(edge_id):
-    return _edges[edge_id]
+    return id_entity_map[edge_id]
 
 def delete_edge(edge_id):
     del _edges[edge_id]
+    del id_entity_map[edge_id]
 
 class Relation(event.Emitter, VisibilitySuppressor):
     def __init__(self, name, color=None, directed=True, acyclic=True, max_innodes=-1, max_outnodes=-1):
@@ -105,6 +106,7 @@ class Relation(event.Emitter, VisibilitySuppressor):
         
         edge.add_listener("edge_changed", self._edge_changed)
         _edges[edge.id] = edge
+        id_entity_map[edge.id] = edge
 
         self.emit("edge_added", self.id, edge.id, srcid, dstid, source)
         try:
@@ -147,6 +149,7 @@ class Relation(event.Emitter, VisibilitySuppressor):
         except Exception as e:
             log.error(e.message)
         del _edges[edge.id]
+        del id_entity_map[edge.id]
     
     def roots(self):
         return list(self._forest)
@@ -448,11 +451,12 @@ def make_class(name, *custom_fields):
         Field("Title", str, ""),
     ]
     klass = Class(name, Color.random(), *default_fields, *custom_fields)
+    id_entity_map[klass.id] = klass
     classes.append(klass)
     return klass.id
 
 def get_class(class_id):
-    return find_by_id("class", classes, class_id)
+    return id_entity_map[class_id]
 
 def delete_class(class_id):
     global objects
@@ -461,10 +465,12 @@ def delete_class(class_id):
     for object_id in object_ids:
         delete_object(object_id)
     classes.remove(klass)
+    del id_entity_map[class_id]
 
 def make_object(class_id, *values, source="model"):
     klass = get_class(class_id)
     object = Object(klass, *values)
+    id_entity_map[object.id] = object
     objects.append(object, source)
     klass.add_listener("class_changed", object._class_changed)
     return object.id
@@ -473,7 +479,7 @@ def get_objects_by_class(class_id):
     return objects.by_class(class_id)
 
 def get_object(object_id):
-    return find_by_id("object", objects, object_id)
+    return id_entity_map[object_id]
 
 def delete_object(object_id, source="model"):
     # Remove all relations involving this object
@@ -483,19 +489,22 @@ def delete_object(object_id, source="model"):
     klass = object.klass
     klass.remove_listener("class_changed", object._class_changed)
     objects.remove(object, source)
+    del id_entity_map[object.id]
 
 def make_relation(name, *args, **kwargs):
     relation = Relation(name, *args, **kwargs)
+    id_entity_map[relation.id] = relation
     relations.append(relation)
     return relation.id
 
 def get_relation(relation_id):
-    return find_by_id("relation", relations, relation_id)
+    return id_entity_map[relation_id]
 
 def delete_relation(relation_id):
     relation = get_relation(relation_id)
     relation.clear()
     relations.remove(get_relation(relation_id))
+    del id_entity_map[relation_id]
 
 def connect(relation_id, src_id, dst_id, source="model"):
     relation = get_relation(relation_id)
@@ -516,9 +525,6 @@ class Color(object):
     def random():
         rand = lambda: random.randint(0, 255)
         return Color(rand(), rand(), rand())
-
-def class_id(id):
-    return id
 
 def outnodes(object_id, *relation_ids):
     outnode_ids = set()
@@ -545,47 +551,6 @@ def has_path(source_id, dest_id, *relation_ids):
                 frontier_queue.insert(0, neighbor_id)
                 frontier_set.add(neighbor_id)
     return False
-
-def field(name):
-    def fn(object):
-        return object.get_field(name)
-    return fn
-
-def eq(lhs, rhs):
-    def fn(object):
-        return lhs(object) == rhs(object)
-    return fn
-
-def const(value):
-    def fn(object):
-        return value
-    return fn
-
-def has_type(klass):
-    def fn(object):
-        return object.klass.id == klass
-    return fn
-
-def has_path_to(dest_id, *relation_ids):
-    def fn(source_object):
-        return source_object.klass.id != tag_class and has_path(source_object.id, dest_id, *relation_ids)
-    return fn
-
-def land(*operands):
-    def fn(object):
-        for operand in operands:
-            if not operand(object):
-                return False
-        return True
-    return fn
-
-def lor(*operands):
-    def fn(object):
-        for operand in operands:
-            if operand(object):
-                return True
-        return False
-    return fn
 
 def innodes(object_id, relation_id):
     "Returns the number of nodes pointing the given node via the given edge type."
