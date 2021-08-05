@@ -7,7 +7,7 @@ class Emitter(object):
     
     def emit(self, event_name, *args):
         for fn in self._listeners.get(event_name, set()):
-            log.info("{0} {1} {2} {3}".format(self, event_name, fn, args))
+            log.debug("{0} {1} {2} {3}".format(self, event_name, fn, args))
             fn(*args)
 
     def add_listener(self, event_name, fn):

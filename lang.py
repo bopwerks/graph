@@ -52,10 +52,10 @@ class Procedure(object):
 def eval(expr, env=global_env):
     "Evaluate an expression."
     # N.B. We need to be able to run the Qt event loop concurrently.
-    if type(expr) in (int, float):
+    if type(expr) in (int, float, str):
         return expr
-    elif type(expr) == str:
-        return env.find(expr)[expr]
+    elif type(expr) == Symbol:
+        return env.find(expr.name)[expr.name]
     op, *args = expr
     if op == "lambda":
         return Procedure(args[0], args[1:], env)
@@ -230,6 +230,25 @@ def make_object_filter(title, predicate):
 def delete_object_filter(object_filter_id):
     model.delete_object_filter(object_filter_id)
 
+@builtin("find-first")
+def find_first(predicate, L):
+    for elt in L:
+        if predicate(elt):
+            return elt
+
+@builtin("all-relations")
+def all_relations():
+    return list(map(lambda relation: relation.id, model.relations))
+
+@builtin("relation-name")
+def relation_name(relation_id):
+    relation = model.get_relation(relation_id)
+    return relation.name
+
+@builtin("printf")
+def printf(fmt, *args):
+    log.info(fmt, *args)
+
 class BufferedReader(object):
     def __init__(self, file):
         self.file = file
@@ -266,7 +285,7 @@ class Lexer(object):
     def match_any(self, tokens):
         ch = self.br.get()
         if ch not in tokens:
-            raise SyntaxError()
+            raise SyntaxError("Expected token in {0}, got {1}".format(tokens, ch))
     
     def match(self, str):
         for ch in str:
@@ -275,6 +294,9 @@ class Lexer(object):
 # whitespace = " \r\n\t"
 # letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 # digits = "0123456789"
+
+symbol_start = string.ascii_letters + "!@#$%^&*-_+=|\~?<>/\\"
+symbol_chars = symbol_start + string.digits
 
 class State(object):
     COMMENT     = 1
@@ -302,7 +324,7 @@ def read_lexeme(br):
             elif ch == '"':
                 state = State.STRING
                 br.get()
-            elif ch in string.ascii_letters:
+            elif ch in string.ascii_letters or ch in symbol_start:
                 state = State.SYMBOL
             elif ch in string.digits or ch == '.':
                 state = State.NUMBER
@@ -313,7 +335,7 @@ def read_lexeme(br):
                 br.get()
                 return Lexeme.right_paren()
             elif ch not in string.whitespace:
-                raise SyntaxError()
+                raise SyntaxError("Unexpected character: {0}".format(ch))
             else:
                 br.get()
         elif state == State.COMMENT:
@@ -350,7 +372,7 @@ def read_lexeme(br):
             if br.eof():
                 return Lexeme.symbol(token)
             ch = br.peek()
-            if ch in string.ascii_letters or ch in string.digits or ch in "-_?":
+            if ch in symbol_chars:
                 token += br.get()
             else:
                 return Lexeme.symbol(token)
@@ -365,7 +387,7 @@ class Lexer(object):
     
     def match(self, lexeme_type):
         if self.lexeme.type != lexeme_type:
-            raise SyntaxError()
+            raise SyntaxError("Expected lexeme {0}, got {1}".format(lexeme_type, self.lexeme.type))
         self.lexeme = read_lexeme(self.br)
     
     def peek(self):
@@ -402,7 +424,7 @@ def read_sexpr(lexer):
         lexer.accept()
         return lexeme.token
     else:
-        raise SyntaxError()
+        raise SyntaxError("Unexpected lexeme: {0}".format(lexeme))
 
 def read_list(lexer):
     L = []
@@ -415,7 +437,7 @@ def read_list(lexer):
             L.append(read_sexpr(lexer))
     lexeme = lexer.peek()
     if lexeme.type != Lexeme.RPAREN:
-        raise SyntaxError()
+        raise SyntaxError("Expected ')' lexeme, got {0}".format(lexeme))
     lexer.accept()
     return L
 

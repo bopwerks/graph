@@ -850,6 +850,21 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._object_filters = {}
         self._last_object_filter = 0
 
+        model.make_class("Tag")
+        model.make_class("Goal")
+        model.make_class(
+            "Task",
+            model.Field("Urgent", bool, False),
+            model.Field("Important", bool, False),
+        )
+        model.make_relation("precedes")
+        model.make_relation(
+            "is a child of",
+            directed=True,
+            acyclic=True,
+            max_outnodes=1
+        )
+
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
         action = QtWidgets.QAction(icon, text, self)
@@ -875,7 +890,13 @@ class QMainWindow(QtWidgets.QMainWindow):
     def _on_button_click(self, *args):
         model.make_object_filter(
             "Actionable {0}".format(len(self._object_filters)+1),
-            lang.eval(lang.read("(lambda (object-id) (zero? (length (innodes object-id 4))))"))
+            lang.eval(lang.read("""
+                (let ((relation-id
+                        (find-first (lambda (relation-id)
+                          (= (relation-name relation-id) "precedes")) (all-relations))))
+                  (lambda (object-id)
+                    (zero? (length (innodes object-id relation-id)))))
+            """))
         )
 
 class QColorWidget(QtWidgets.QPushButton):

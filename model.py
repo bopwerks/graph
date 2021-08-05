@@ -520,27 +520,6 @@ class Color(object):
 def class_id(id):
     return id
 
-tag_class = make_class("Tag")
-
-goal_class = make_class(
-    "Goal",
-)
-
-task_class = make_class(
-    "Task",
-    Field("Urgent", bool, False),
-    Field("Important", bool, False),
-)
-
-precedes = make_relation("precedes")
-
-is_child_of = make_relation(
-    "is a child of",
-    directed=True,
-    acyclic=True,
-    max_outnodes=1
-)
-
 def outnodes(object_id, *relation_ids):
     outnode_ids = set()
     for relation_id in relation_ids:
