@@ -136,9 +136,6 @@ def object_delete(object_id, source="model"):
     object.klass.objects.remove(object_id)
     del __id_entity_map[object_id]
 
-    def innodes(self, id):
-        return list(self._innodes.get(id, {}).keys())
-
 def object_get_innodes(object_id, relation_id):
     relation = get_relation(relation_id)
     return list(relation.innodes.get(object_id, {}).keys())
@@ -151,17 +148,18 @@ def object_delete_edges(object_id, relation_id):
     relation = get_relation(relation_id)
     edge_ids = list(object_get_edges(object_id, relation_id))
     for edge_id in edge_ids:
-        relation.disconnect(edge_id)
+        edge_delete(edge_id)
 
 def object_get_edges(object_id, relation_id):
-    object = get_object(object_id)
     relation = get_relation(relation_id)
-    innode_ids = dict(relation.innodes.get(id, {})).values()
+    edge_ids = set()
+    innode_ids = dict(relation.innodes.get(object_id, {})).values()
     for edge_id in innode_ids:
-        yield edge_id
-    outnode_ids = dict(relation.outnodes.get(id, {})).values()
+        edge_ids.add(edge_id)
+    outnode_ids = dict(relation.outnodes.get(object_id, {})).values()
     for edge_id in outnode_ids:
-        yield edge_id
+        edge_ids.add(edge_id)
+    return edge_ids
 
 def object_get_color(object_id):
     object = get_object(object_id)
@@ -218,7 +216,7 @@ def get_relations():
 
 def relation_delete(relation_id):
     __emit.relation_deleted(relation_id)
-    relation_clear_edges(relation_id)
+    relation_delete_edges(relation_id)
     __type_id_map[Relation].remove(relation_id)
     del __id_entity_map[relation_id]
 
@@ -227,24 +225,26 @@ def relation_get_edges(relation_id):
     innodes = dict(relation.innodes)
     outnodes = dict(relation.outnodes)
     visited = set()
+    edge_ids = set()
     for dest_id, in_edges in innodes.items():
         in_edges = list(in_edges.values())
         for edge_id in in_edges:
             if not edge_id in visited:
-                yield edge_id
+                edge_ids.add(edge_id)
                 visited.add(edge_id)
     for dest_id, out_edges in outnodes.items():
         out_edges = list(out_edges.values())
         for edge_id in out_edges:
             if not edge_id in visited:
-                yield edge_id
+                edge_ids.add(edge_id)
                 visited.add(edge_id)
+    return edge_ids
 
 def relation_get_color(relation_id):
     relation = get_relation(relation_id)
     return Color.from_color(relation.color)
 
-def relation_clear_edges(relation_id):
+def relation_delete_edges(relation_id):
     for edge_id in relation_get_edges(relation_id):
         edge_delete(edge_id)
 

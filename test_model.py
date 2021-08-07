@@ -175,6 +175,36 @@ def test_object_delete_updates_object_list():
     objects = model.get_objects()
     assert [] == objects
 
+@with_setup(teardown=model.reset)
+def test_object_get_innodes():
+    class_id = model.class_new("Test Class")
+    object_id1 = model.object_new(class_id)
+    object_id2 = model.object_new(class_id)
+    relation_id = model.relation_new("Test Relation")
+    edge_id = model.edge_new(relation_id, object_id1, object_id2)
+    innode_ids = model.object_get_innodes(object_id2, relation_id)
+    assert [object_id1] == innode_ids
+
+@with_setup(teardown=model.reset)
+def test_object_get_outnodes():
+    class_id = model.class_new("Test Class")
+    object_id1 = model.object_new(class_id)
+    object_id2 = model.object_new(class_id)
+    relation_id = model.relation_new("Test Relation")
+    edge_id = model.edge_new(relation_id, object_id1, object_id2)
+    innode_ids = model.object_get_outnodes(object_id1, relation_id)
+    assert [object_id2] == innode_ids
+
+@with_setup(teardown=model.reset)
+def test_object_get_edges():
+    class_id = model.class_new("Test Class")
+    object_id1 = model.object_new(class_id)
+    object_id2 = model.object_new(class_id)
+    relation_id = model.relation_new("Test Relation")
+    edge_id = model.edge_new(relation_id, object_id1, object_id2)
+    edge_ids = model.object_get_edges(object_id1, relation_id)
+    assert set([edge_id]) == edge_ids
+
 # Relations
 
 @with_setup(teardown=model.reset)
@@ -189,6 +219,16 @@ def test_relation_delete_updates_relation_list():
     model.relation_delete(relation_id)
     relations = model.get_relations()
     assert [] == relations
+
+@with_setup(teardown=model.reset)
+def test_relation_get_edges():
+    class_id = model.class_new("Test Class")
+    object_id1 = model.object_new(class_id)
+    object_id2 = model.object_new(class_id)
+    relation_id = model.relation_new("Test Relation")
+    edge_id = model.edge_new(relation_id, object_id1, object_id2)
+    edge_ids = model.relation_get_edges(relation_id)
+    assert set([edge_id]) == edge_ids
 
 # Edges
 
