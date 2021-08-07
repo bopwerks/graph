@@ -8,6 +8,7 @@ verify_ssl = true
 [packages]
 pyqt5 = "*"
 nose = "*"
+coverage = "*"
 
 [requires]
 python_version = "3.9"
