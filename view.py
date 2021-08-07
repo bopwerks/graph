@@ -66,9 +66,9 @@ class QArrow(QtWidgets.QGraphicsItemGroup):
         self._radius = radius
         self._angle = angle
 
-        relation = model.get_relation(relation_id)
+        color = model.get_relation_color(relation_id)
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        stroke.setColor(QtGui.QColor(relation.color.r, relation.color.g, relation.color.b))
+        stroke.setColor(QtGui.QColor(color.r, color.g, color.b))
         self._thickpen = QtGui.QPen(stroke, 2)
         self._thinpen = QtGui.QPen(stroke, 1)
 
@@ -893,7 +893,7 @@ class QMainWindow(QtWidgets.QMainWindow):
             lang.eval(lang.read("""
                 (let ((relation-id
                         (find-first (lambda (relation-id)
-                          (= (relation-name relation-id) "precedes")) (all-relations))))
+                          (= (relation-name relation-id) "has vocation")) (all-relations))))
                   (lambda (object-id)
                     (zero? (length (innodes object-id relation-id)))))
             """))

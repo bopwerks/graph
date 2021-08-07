@@ -205,18 +205,18 @@ def test_eq():
     assert rval == True
 
 def test_all_relations():
-    expected_relation_id = model.make_relation("blah")
+    expected_relation_id = model.relation_new("blah")
     returned_relation_ids = lang.eval(lang.read('(all-relations)'))
     assert [expected_relation_id] == returned_relation_ids
 
 def test_relation_name():
     expected_relation_name = "blah"
-    relation_id = model.make_relation(expected_relation_name)
+    relation_id = model.relation_new(expected_relation_name)
     actual_relation_name = lang.eval(lang.read('(relation-name {0})'.format(relation_id)))
     assert actual_relation_name == expected_relation_name
 
 def test_find_first():
-    expected_relation_id = model.make_relation("blah")
+    expected_relation_id = model.relation_new("blah")
     expression = lang.read('(find-first (lambda (id) (= id {0})) (all-relations))'.format(expected_relation_id))
     actual_relation_id = lang.eval(expression)
     assert actual_relation_id == expected_relation_id

@@ -238,7 +238,7 @@ def find_first(predicate, L):
 
 @builtin("all-relations")
 def all_relations():
-    return list(map(lambda relation: relation.id, model.relations))
+    return model.get_relations()
 
 @builtin("relation-name")
 def relation_name(relation_id):
