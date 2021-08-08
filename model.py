@@ -61,7 +61,7 @@ class Class(event.Emitter, VisibilitySuppressor):
     
     def suppressable_entities(self):
         for object_id in set(self.objects):
-            yield __id_entity_map[object_id]
+            yield _get_object(object_id)
     
     def __repr__(self):
         return "Class({0})".format(repr(self.name))
@@ -70,7 +70,7 @@ def class_new(name, *custom_fields, source="model"):
     klass = Class(name, Color.random())
     __id_entity_map[klass.id] = klass
     __type_id_map[Class].append(klass.id)
-    __emit.class_created(klass.id, source)
+    _emit.class_created(klass.id, source)
     return klass.id
 
 def _make_type_getter(expected_type):
@@ -89,7 +89,7 @@ def class_delete(class_id):
     klass = _get_class(class_id)
     for object_id in set(klass.objects):
         object_delete(object_id)
-    __emit.class_deleted(class_id)
+    _emit.class_deleted(class_id)
     __type_id_map[Class].remove(class_id)
     del __id_entity_map[class_id]
 
@@ -100,11 +100,15 @@ def class_get_name(class_id):
 def class_set_name(class_id, name, source="model"):
     klass = _get_class(class_id)
     klass.name = name
-    __emit.class_changed(class_id, source)
+    _emit.class_changed(class_id, source)
 
 def class_is_visible(class_id):
     klass = _get_class(class_id)
     return klass.is_visible()
+
+def class_set_visible(class_id, is_visible, symbol=None):
+    klass: Class = _get_class(class_id)
+    return klass.set_visible(is_visible, symbol if symbol else class_id)
 
 def class_get_color(class_id):
     klass = _get_class(class_id)
@@ -115,7 +119,7 @@ def class_set_color(class_id, color, source="model"):
     new_color = Color.from_color(color)
     klass.color = new_color
     for object_id in klass.objects:
-        __emit.object_changed(object_id, source)
+        _emit.object_changed(object_id, source)
 
 # Objects
 
@@ -129,12 +133,12 @@ class Object(event.Emitter, VisibilitySuppressor):
         self.fields = []
     
     def visibility_changed(self):
-        self.emit("object_changed", self.id)
+        _emit.object_changed(self.id, "model")
     
     def suppressable_entities(self):
-        for relation in relations:
-            for edge_id in get_object_edges(self.id, relation.id):
-                yield __id_entity_map[edge_id]
+        for relation_id in get_relations():
+            for edge_id in object_get_edges(self.id, relation_id):
+                yield get_edge(edge_id)
 
     def __repr__(self):
         return "<Object id={0} title={1}>".format(self.id, repr(self.title))
@@ -146,7 +150,7 @@ def object_new(class_id, *values, source="model"):
     __id_entity_map[object.id] = object
     object.klass.objects.add(object.id)
     __type_id_map[Object].add(object.id)
-    __emit.object_created(object.id, source)
+    _emit.object_created(object.id, source)
 
     return object.id
 
@@ -160,7 +164,7 @@ def object_delete(object_id, source="model"):
     for relation_id in __type_id_map[Relation]:
         object_delete_edges(object_id, relation_id)
         
-    __emit.object_deleted(object_id, source)
+    _emit.object_deleted(object_id, source)
     __type_id_map[Object].remove(object_id)
     object.klass.objects.remove(object_id)
     del __id_entity_map[object_id]
@@ -242,7 +246,7 @@ def relation_new(name, *args, source="model", **kwargs):
     relation = Relation(name, *args, **kwargs)
     __id_entity_map[relation.id] = relation
     __type_id_map[Relation].append(relation.id)
-    __emit.relation_created(relation.id, source)
+    _emit.relation_created(relation.id, source)
     return relation.id
 
 _get_relation = _make_type_getter(Relation)
@@ -251,7 +255,7 @@ def get_relations():
     return list(__type_id_map[Relation])
 
 def relation_delete(relation_id):
-    __emit.relation_deleted(relation_id)
+    _emit.relation_deleted(relation_id)
     relation_delete_edges(relation_id)
     __type_id_map[Relation].remove(relation_id)
     del __id_entity_map[relation_id]
@@ -284,7 +288,7 @@ def relation_set_color(relation_id, color, source="model"):
     relation = _get_relation(relation_id)
     new_color = Color.from_color(color)
     relation.color = new_color
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_get_name(relation_id):
     relation = _get_relation(relation_id)
@@ -293,7 +297,7 @@ def relation_get_name(relation_id):
 def relation_set_name(relation_id, name, source="model"):
     relation = _get_relation(relation_id)
     relation.name = name
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_is_visible(relation_id):
     relation = _get_relation(relation_id)
@@ -306,7 +310,7 @@ def relation_is_directed(relation_id):
 def relation_set_directed(relation_id, is_directed, source="model"):
     relation = _get_relation(relation_id)
     relation.directed = is_directed
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_is_acyclic(relation_id):
     relation = _get_relation(relation_id)
@@ -315,7 +319,7 @@ def relation_is_acyclic(relation_id):
 def relation_set_acyclic(relation_id, is_acyclic, source="model"):
     relation = _get_relation(relation_id)
     relation.acyclic = is_acyclic
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_is_reverse(relation_id):
     relation = _get_relation(relation_id)
@@ -324,7 +328,7 @@ def relation_is_reverse(relation_id):
 def relation_set_reverse(relation_id, is_reverse, source="model"):
     relation = _get_relation(relation_id)
     relation.reverse = is_reverse
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_get_max_innodes(relation_id):
     relation = _get_relation(relation_id)
@@ -333,7 +337,7 @@ def relation_get_max_innodes(relation_id):
 def relation_set_max_innodes(relation_id, max_innodes, source="model"):
     relation = _get_relation(relation_id)
     relation.max_innodes = max_innodes
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_get_max_outnodes(relation_id):
     relation = _get_relation(relation_id)
@@ -342,7 +346,7 @@ def relation_get_max_outnodes(relation_id):
 def relation_set_max_outnodes(relation_id, max_outnodes, source="model"):
     relation = _get_relation(relation_id)
     relation.max_outnodes = max_innodes
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_get_on_add_handler(relation_id):
     relation = _get_relation(relation_id)
@@ -351,7 +355,7 @@ def relation_get_on_add_handler(relation_id):
 def relation_set_on_add_handler(relation_id, on_add, source="model"):
     relation = _get_relation(relation_id)
     relation.on_add = on_add
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_get_on_delete_handler(relation_id):
     relation = _get_relation(relation_id)
@@ -360,7 +364,7 @@ def relation_get_on_delete_handler(relation_id):
 def relation_set_on_delete_handler(relation_id, on_delete, source="model"):
     relation = _get_relation(relation_id)
     relation.on_delete = on_delete
-    __emit.relation_changed(relation_id, source)
+    _emit.relation_changed(relation_id, source)
 
 def relation_delete_edges(relation_id):
     for edge_id in relation_get_edges(relation_id):
@@ -386,7 +390,7 @@ class Edge(event.Emitter, VisibilitySuppressor):
         self.dst_id = dst_id
     
     def visibility_changed(self):
-        self.emit("edge_changed", self.id)
+        _emit.edge_changed(self.id)
 
 def edge_new(relation_id, srcid, dstid, source="model"):
     relation = _get_relation(relation_id)
@@ -404,7 +408,7 @@ def edge_new(relation_id, srcid, dstid, source="model"):
     
     __type_id_map[Edge].add(edge.id)
     __id_entity_map[edge.id] = edge
-    __emit.edge_created(edge.id, source)
+    _emit.edge_created(edge.id, source)
     try:
         lang.eval(lang.read(relation.on_add))(edge.id)
     except Exception as e:
@@ -437,12 +441,12 @@ def _edge_connect(relation_id, srcid, dstid, edge_id, source="model"):
     source_object = _get_object(srcid)
     outnodes[dstid] = edge_id
     relation.outnodes[srcid] = outnodes
-    __emit.object_changed(srcid, source)
+    _emit.object_changed(srcid, source)
     
     dest_object = _get_object(dstid)
     innodes[srcid] = edge_id
     relation.innodes[dstid] = innodes
-    __emit.object_changed(dstid, source)
+    _emit.object_changed(dstid, source)
 
 def edge_delete(edge_id):
     edge = _get_edge(edge_id)
@@ -457,7 +461,7 @@ def edge_delete(edge_id):
     _edge_update_forest(relation_id, srcid)
     _edge_update_forest(relation_id, dstid)
 
-    __emit.edge_deleted(edge_id)
+    _emit.edge_deleted(edge_id)
     try:
         lang.eval(lang.read(relation.on_delete))(edge_id)
     except Exception as e:
@@ -469,12 +473,12 @@ def _edge_disconnect(relation, srcid, dstid):
     del relation.outnodes[srcid][dstid]
     if not relation.outnodes[srcid]:
         del relation.outnodes[srcid]
-    __emit.object_changed(srcid)
+    _emit.object_changed(srcid)
 
     del relation.innodes[dstid][srcid]
     if not relation.innodes[dstid]:
         del relation.innodes[dstid]
-    __emit.object_changed(dstid)
+    _emit.object_changed(dstid)
 
 _get_edge = _make_type_getter(Edge)
 
@@ -601,7 +605,7 @@ class __SuperDelegate(Delegate):
             delegate.edge_deleted(id, source)
 
 __delegates = set()
-__emit = __SuperDelegate(__delegates)
+_emit = __SuperDelegate(__delegates)
 
 def add_delegate(delegate: Delegate):
     __delegates.add(delegate)

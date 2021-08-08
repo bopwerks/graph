@@ -644,7 +644,7 @@ class QClassList(QtWidgets.QListWidget):
         class_is_visible = model.class_is_visible(class_id)
         is_checked = item.checkState() == QtCore.Qt.Checked
         if class_is_visible != is_checked:
-            model.class_set_visible(is_checked)
+            model.class_set_visible(class_id, is_checked)
         self._edit(class_id)
     
     def _id_to_item(self, member_id):
