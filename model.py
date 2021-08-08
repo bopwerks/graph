@@ -23,6 +23,9 @@ class Color(object):
     @staticmethod
     def from_color(color):
         return Color(color.r, color.g, color.b)
+    
+    def __repr__(self):
+        return "Color({0},{1},{2})".format(self.r, self.g, self.b)
 
 class VisibilitySuppressor(object):
     def __init__(self, suppressors=set()):
@@ -62,9 +65,6 @@ class Class(event.Emitter, VisibilitySuppressor):
     def suppressable_entities(self):
         for object_id in set(self.objects):
             yield _get_object(object_id)
-    
-    def __repr__(self):
-        return "Class({0})".format(repr(self.name))
 
 def class_new(name, *custom_fields, source="model"):
     klass = Class(name, Color.random())
@@ -139,9 +139,6 @@ class Object(event.Emitter, VisibilitySuppressor):
         for relation_id in get_relations():
             for edge_id in object_get_edges(self.id, relation_id):
                 yield get_edge(edge_id)
-
-    def __repr__(self):
-        return "<Object id={0} title={1}>".format(self.id, repr(self.title))
 
 def object_new(class_id, *values, source="model"):
     klass = _get_class(class_id)
@@ -238,9 +235,6 @@ class Relation(event.Emitter, VisibilitySuppressor):
     def suppressable_entities(self):
         for edge_id in get_relation_edges(self.id):
             yield __id_entity_map[edge_id]
-    
-    def __repr__(self):
-        return "<Relation id={0} name={1}>".format(self.id, repr(self.name))
 
 def relation_new(name, *args, source="model", **kwargs):
     relation = Relation(name, *args, **kwargs)
@@ -289,6 +283,8 @@ def relation_set_color(relation_id, color, source="model"):
     new_color = Color.from_color(color)
     relation.color = new_color
     _emit.relation_changed(relation_id, source)
+    for edge_id in relation_get_edges(relation_id):
+        _emit.edge_changed(edge_id, source)
 
 def relation_get_name(relation_id):
     relation = _get_relation(relation_id)
@@ -484,6 +480,26 @@ _get_edge = _make_type_getter(Edge)
 
 def get_edges():
     return list(__type_id_map[Edge])
+
+def edge_get_relation(edge_id):
+    edge = _get_edge(edge_id)
+    return edge.relation_id
+
+def edge_get_source_object(edge_id):
+    edge = _get_edge(edge_id)
+    return edge.src_id
+
+def edge_get_destination_object(edge_id):
+    edge = _get_edge(edge_id)
+    return edge.dst_id
+
+def edge_is_visible(edge_id):
+    edge = _get_edge(edge_id)
+    return edge.is_visible()
+
+def edge_get_color(edge_id):
+    edge = _get_edge(edge_id)
+    return relation_get_color(edge.relation_id)
 
 # Object Filters
 

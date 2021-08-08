@@ -162,19 +162,17 @@ class QEdge(QArrow):
         self._dest = dest
         self._origin.add_listener("graphical_object_changed", self._onNodeUpdate)
         self._dest.add_listener("graphical_object_changed", self._onNodeUpdate)
-        self._relation = model.get_relation(relation_id)
-        self._relation.add_listener("object_changed", self._on_relation_changed)
+        self._relation_id = relation_id
         self._setArrows()
-        model_edge = model.get_edge(edge_id)
-        self.setVisible(model_edge.is_visible())
+        is_visible = model.edge_is_visible(edge_id)
+        self.setVisible(is_visible)
     
-    def _on_relation_changed(self, relation_id):
-        self.setColor(QtGui.QColor(self._relation.color.r, self._relation.color.g, self._relation.color.b))
+    def set_color(self, color):
+        self.setColor(QtGui.QColor(color.r, color.g, color.b))
     
     def delete(self):
         self._origin.remove_listener("graphical_object_changed", self._onNodeUpdate)
         self._dest.remove_listener("graphical_object_changed", self._onNodeUpdate)
-        self._relation.remove_listener("object_changed", self._on_relation_changed)
         model.disconnect(self.id, self._edge_id)
 
     def _setArrows(self):
@@ -186,16 +184,14 @@ class QEdge(QArrow):
 
     def select(self):
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        relation = model.get_relation(self.id)
-        color = relation.color
+        color = model.relation_get_color(self._relation_id)
         stroke.setColor(QtGui.QColor(color.r, color.g, color.b))
         pen = QtGui.QPen(stroke, 2)
         self._line.setPen(pen)
 
     def unselect(self):
         stroke = QtGui.QBrush(QtCore.Qt.SolidPattern)
-        relation = model.get_relation(self.id)
-        color = relation.color
+        color = model.relation_get_color(self._relation_id)
         stroke.setColor(QtGui.QColor(color.r, color.g, color.b))
         pen = QtGui.QPen(stroke, 1)
         self._line.setPen(pen)
@@ -329,7 +325,10 @@ class QObjectFilter(QCollectionFilter):
         item = self.item(row, col)
         object.set_field("Title", item.text())
 
-def make_edge(relation_id, edge_id, source_object_id, dest_object_id):
+def make_edge(edge_id):
+    relation_id = model.edge_get_relation(edge_id)
+    source_object_id = model.edge_get_source_object(edge_id)
+    dest_object_id = model.edge_get_destination_object(edge_id)
     source_grob = get_object(source_object_id)
     dest_grob = get_object(dest_object_id)
     graphical_edge = QEdge(relation_id, edge_id, source_grob, dest_grob)
@@ -584,15 +583,17 @@ class QNodeSceneDelegate(model.Delegate):
         is_visible = model.object_is_visible(object_id)
         graphical_object.setVisible(is_visible)
 
-    def edge_added(self, edge_id, source):
+    def edge_created(self, edge_id, source):
         if source == "model":
-            graphical_edge = make_edge(rel_id, edge_id, src_id, dst_id)
+            graphical_edge = make_edge(edge_id)
             self.scene.addItem(graphical_edge)
     
     def edge_changed(self, edge_id, source):
-        model_edge = model.get_edge(edge_id)
         graphical_edge = get_edge(edge_id)
-        graphical_edge.setVisible(model_edge.is_visible())
+        is_visible = model.edge_is_visible(edge_id)
+        graphical_edge.setVisible(is_visible)
+        color = model.edge_get_color(edge_id)
+        graphical_edge.set_color(color)
 
     def edge_deleted(self, edge_id, source):
         edge = get_edge(edge_id)
