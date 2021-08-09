@@ -242,8 +242,7 @@ def all_relations():
 
 @builtin("relation-name")
 def relation_name(relation_id):
-    relation = model.get_relation(relation_id)
-    return relation.name
+    return model.relation_get_name(relation_id)
 
 @builtin("printf")
 def printf(fmt, *args):

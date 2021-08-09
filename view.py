@@ -153,6 +153,13 @@ def boundary(dest_node, source_node, line):
     vectors.sort(key=distance)
     return vectors[0]
 
+class QObjectDelegate(object):
+    def __init__(self, qedge):
+        self.qedge = qedge
+    
+    def object_moved(self, qobject):
+        self.qedge.object_moved()
+
 class QEdge(QArrow):
     def __init__(self, relation_id, edge_id, origin, dest, radius=20, angle=math.pi/6):
         QArrow.__init__(self, relation_id, radius=radius, angle=angle)

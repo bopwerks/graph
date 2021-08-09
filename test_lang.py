@@ -178,24 +178,11 @@ def test_read_list_nested_elt():
     with io.StringIO('(lambda (object-id) (zero? (length (innodes object-id 4))))') as fp:
         br = lang.BufferedReader(fp)
         lexer = lang.Lexer(br)
-        expr = lang.read_sexpr(lexer)
-        assert expr == [
-            lang.Symbol("lambda"),
-            [
-                lang.Symbol("object-id")
-            ],
-            [
-                lang.Symbol("zero?"),
-                [
-                    lang.Symbol("length"),
-                    [
-                        lang.Symbol("innodes"),
-                        lang.Symbol("object-id"),
-                        4
-                    ],
-                ],
-            ],
-        ]
+        actual_expr = lang.read_sexpr(lexer)
+        expected_expr = [lang.Symbol("lambda"), [lang.Symbol("object-id")],
+                            [lang.Symbol("zero?"),
+                                [lang.Symbol("length"), [lang.Symbol("innodes"), lang.Symbol("object-id"), 4]]]]
+        assert actual_expr == expected_expr
 
 # Evaluator
 

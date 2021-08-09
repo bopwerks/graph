@@ -85,11 +85,11 @@ _get_class = _make_type_getter(Class)
 def get_classes():
     return list(__type_id_map[Class])
 
-def class_delete(class_id):
+def class_delete(class_id, source="model"):
     klass = _get_class(class_id)
     for object_id in set(klass.objects):
         object_delete(object_id)
-    _emit.class_deleted(class_id)
+    _emit.class_deleted(class_id, source)
     __type_id_map[Class].remove(class_id)
     del __id_entity_map[class_id]
 
@@ -248,8 +248,8 @@ _get_relation = _make_type_getter(Relation)
 def get_relations():
     return list(__type_id_map[Relation])
 
-def relation_delete(relation_id):
-    _emit.relation_deleted(relation_id)
+def relation_delete(relation_id, source="model"):
+    _emit.relation_deleted(relation_id, source)
     relation_delete_edges(relation_id)
     __type_id_map[Relation].remove(relation_id)
     del __id_entity_map[relation_id]
@@ -396,7 +396,7 @@ def edge_new(relation_id, srcid, dstid, source="model"):
         try:
             _edge_connect(relation_id, dstid, srcid, edge.id)
         except RelationException as exception:
-            _edge_disconnect(relation_id, srcid, dstid)
+            _edge_disconnect(relation_id, srcid, dstid, source)
             raise exception
     
     _edge_update_forest(relation_id, srcid)
@@ -444,20 +444,20 @@ def _edge_connect(relation_id, srcid, dstid, edge_id, source="model"):
     relation.innodes[dstid] = innodes
     _emit.object_changed(dstid, source)
 
-def edge_delete(edge_id):
+def edge_delete(edge_id, source="model"):
     edge = _get_edge(edge_id)
     relation_id = edge.relation_id
     relation = _get_relation(relation_id)
     srcid = edge.src_id
     dstid = edge.dst_id
 
-    _edge_disconnect(relation, srcid, dstid)
+    _edge_disconnect(relation, srcid, dstid, source)
     if not relation.directed:
-        _edge_disconnect(relation, dstid, srcid)
+        _edge_disconnect(relation, dstid, srcid, source)
     _edge_update_forest(relation_id, srcid)
     _edge_update_forest(relation_id, dstid)
 
-    _emit.edge_deleted(edge_id)
+    _emit.edge_deleted(edge_id, source)
     try:
         lang.eval(lang.read(relation.on_delete))(edge_id)
     except Exception as e:
@@ -465,16 +465,16 @@ def edge_delete(edge_id):
     __type_id_map[Edge].remove(edge_id)
     del __id_entity_map[edge_id]
 
-def _edge_disconnect(relation, srcid, dstid):
+def _edge_disconnect(relation, srcid, dstid, source):
     del relation.outnodes[srcid][dstid]
     if not relation.outnodes[srcid]:
         del relation.outnodes[srcid]
-    _emit.object_changed(srcid)
+    _emit.object_changed(srcid, source)
 
     del relation.innodes[dstid][srcid]
     if not relation.innodes[dstid]:
         del relation.innodes[dstid]
-    _emit.object_changed(dstid)
+    _emit.object_changed(dstid, source)
 
 _get_edge = _make_type_getter(Edge)
 
