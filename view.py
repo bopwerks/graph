@@ -722,6 +722,7 @@ class QRelationList(QtWidgets.QListWidget):
         is_checked = item.checkState() == QtCore.Qt.Checked
         if relation_is_visible != is_checked:
             model.relation_set_visible(is_checked)
+        set_active_relation(relation_id)
         self._edit(relation_id)
     
     def _id_to_item(self, member_id):

@@ -207,8 +207,8 @@ def object_is_visible(object_id):
 
 class RelationException(Exception):
     def __init__(self, source_id, dest_id, relation_name, message):
-        source_title = _get_object(source_id).get_field("Title")
-        dest_title = _get_object(dest_id).get_field("Title")
+        source_title = object_get_name(source_id)
+        dest_title = object_get_name(dest_id)
         message = "Can't connect {0} to {1} by {2}: {3}".format(
             repr(source_title), repr(dest_title), repr(relation_name), message
         )
