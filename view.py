@@ -180,7 +180,7 @@ class QEdge(QArrow):
     def delete(self):
         self._origin.remove_listener("graphical_object_changed", self._onNodeUpdate)
         self._dest.remove_listener("graphical_object_changed", self._onNodeUpdate)
-        model.disconnect(self.id, self._edge_id)
+        model.edge_delete(self._edge_id)
 
     def _setArrows(self):
         start = self._origin.pos() + midpoint(self._origin)
@@ -235,102 +235,89 @@ class QCollectionFilterDock(QtWidgets.QDockWidget):
             timer = QtCore.QTimer(self)
             timer.setSingleShot(True)
             def delete():
-                model.delete_object_filter(self.id)
+                model.object_filter_delete(self.id)
             timer.timeout.connect(delete)
             timer.start(0)
 
-class QCollectionFilter(QtWidgets.QTableWidget):
-    def __init__(self, collection, object_filter_id):
-        #super().__init__(0, 2)
-        super().__init__()
+class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
+    def __init__(self, object_filter_id):
+        QtWidgets.QTableWidget.__init__(self)
+        model.Delegate.__init__(self)
         self.id = object_filter_id
-        filter = model.get_object_filter(object_filter_id)
-        self._predicate = filter.predicate
-        self._collection = collection
+        self.predicate = model.object_filter_get_predicate(object_filter_id)
         self._matches = set()
         self._matches_list = []
-        self._collection.add_listener("object_created", self._object_created)
-        self._collection.add_listener("object_deleted", self._object_deleted)
-        self._collection.add_listener("object_changed", self._object_changed)
-        for object in collection:
-            self._object_created(object.id, "view")
 
-    def closeEvent(self, event):
-        self._collection.remove_listener("object_created", self._object_created)
-        self._collection.remove_listener("object_deleted", self._object_deleted)
-        self._collection.remove_listener("object_changed", self._object_changed)
+        self.setColumnCount(2)
+        header_class = QtWidgets.QTableWidgetItem("Class")
+        header_class.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(0, header_class)
 
-    def _object_created(self, object_id, source):
-        object = self._collection.get_member(object_id)
-        if self._predicate(object_id):
-            # Add the object to the widget
-            self._matches_list.append(object_id)
-            self._matches.add(object_id)
-            nrows = len(self._matches_list)
-            row = nrows - 1
-            self.setRowCount(nrows)
-            self.member_added(object, row)
+        header_title = QtWidgets.QTableWidgetItem("Title")
+        header_title.setTextAlignment(QtCore.Qt.AlignLeft)
+        self.setHorizontalHeaderItem(1, header_title)
 
-    def member_added(self, member, row):
-        pass
+        self.cellChanged.connect(self._cellChanged)
 
-    def member_changed(self, member, row):
-        pass
+        for object_id in model.get_objects():
+            self.object_created(object_id, "view")
 
-    def _object_deleted(self, object_id, source):
+        model.add_delegate(self)
+    
+    def insert_object(self, object_id, row):
+        self.cellChanged.disconnect(self._cellChanged)
+        class_id = model.object_get_class(object_id)
+        class_name = model.class_get_name(class_id)
+        class_item = QtWidgets.QTableWidgetItem(class_name)
+        class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+        self.setItem(row, 0, class_item)
+
+        object_name = model.object_get_name(object_id)
+        object_item = QtWidgets.QTableWidgetItem(object_name)
+        self.setItem(row, 1, object_item)
+        self.cellChanged.connect(self._cellChanged)
+    
+    def object_created(self, object_id, source):
+        self._matches_list.append(object_id)
+        self._matches.add(object_id)
+        nrows = len(self._matches_list)
+        row = nrows - 1
+        self.setRowCount(nrows)
+        self.insert_object(object_id, row)
+
+        # class_id = model.object_get_class(object_id)
+        # class_name = model.class_get_name(class_id)
+        # class_item = QtWidgets.QTableWidgetItem(class_name)
+        # class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
+        # self.table.setItem(row, 0, class_item)
+
+        # object_name = model.object_get_name(object_id)
+        # object_item = QtWidgets.QTableWidgetItem(object_name)
+        # self.table.setItem(row, 1, object_item)
+    
+    def object_changed(self, object_id, source):
+        if not self.predicate(object_id):
+            self.remove_object(object_id)
+        elif object_id in self._matches:
+            row = self._matches_list.index(object_id)
+            self.insert_object(object_id, row)
+        else:
+            self.add_object(object_id)
+    
+    def object_deleted(self, object_id, source):
         if object_id in self._matches:
-            # Remove the object from the widget
             row = self._matches_list.index(object_id)
             self.removeRow(row)
             self._matches_list.remove(object_id)
             self._matches.remove(object_id)
 
-    def _object_changed(self, object_id):
-        object = self._collection.get_member(object_id)
-        if self._predicate(object_id):
-            if object_id in self._matches:
-                row = self._matches_list.index(object_id)
-                self.member_changed(object, row)
-            else:
-                self._object_created(object_id, "view")
-        else:
-            self._object_deleted(object_id, "view")
-
-class QObjectFilter(QCollectionFilter):
-    def __init__(self, collection, object_filter_id):
-        super().__init__(collection, object_filter_id)
-        self.setColumnCount(2)
-        header_class = QtWidgets.QTableWidgetItem("Class")
-        header_class.setTextAlignment(QtCore.Qt.AlignLeft)
-        self.setHorizontalHeaderItem(0, header_class)
-        header_title = QtWidgets.QTableWidgetItem("Title")
-        header_title.setTextAlignment(QtCore.Qt.AlignLeft)
-        self.setHorizontalHeaderItem(1, header_title)
-        self.cellChanged.connect(self._cellChanged)
-
-    def member_added(self, member, row):
-        class_name = member.klass.name
-        object_title = member.get_field("Title")
-        class_item = QtWidgets.QTableWidgetItem(class_name)
-        class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-        self.setItem(row, 0, class_item)
-        object_item = QtWidgets.QTableWidgetItem(object_title)
-        self.setItem(row, 1, object_item)
-
-    def member_changed(self, member, row):
-        # When cellChanged is connected to to self._cellChanged, calls to self.setItem()
-        # call the target object's set_field() method, which in turn calls its object_changed
-        # event handler, which would then result in this callback being invoked repeatedly.
-        # We temporarily disconnect the handler to prevent this behavior.
-        self.cellChanged.disconnect(self._cellChanged)
-        self.member_added(member, row)
-        self.cellChanged.connect(self._cellChanged)
+    def closeEvent(self, event):
+        model.remove_delegate(self)
 
     def _cellChanged(self, row, col):
         object_id = self._matches_list[row]
-        object = model.get_object(object_id)
         item = self.item(row, col)
-        object.set_field("Title", item.text())
+        model.object_set_name(object_id, item.text())
 
 def make_edge(edge_id):
     relation_id = model.edge_get_relation(edge_id)
@@ -354,7 +341,7 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         return "{0}({1})".format(type(self).__name__, repr(self.widget()))
     
     def delete(self):
-        model.delete_object(self.widget().id)
+        model.object_delete(self.widget().id)
 
     def _connect(self, newedge, source_proxy, dest_proxy):
         source_widget = source_proxy.widget()
@@ -742,76 +729,62 @@ class QRelationList(QtWidgets.QListWidget):
     def closeEvent(self, event):
         model.remove_delegate(self.delegate)
 
-    # def member_added(self, relation):
-    #     set_active_relation(relation.id)
-    
-    # def member_removed(self):
-    #     remaining_members = self.members()
-    #     active_relation = remaining_members[0] if remaining_members else no_active_relation
-    #     set_active_relation(active_relation)
+class QCollectionPalette(QtWidgets.QWidget):
+    def __init__(self, list_widget):
+        QtWidgets.QWidget.__init__(self)
+        self._list: QListWidget = list_widget
 
-    # def member_clicked(self, member, is_checked):
-    #     set_active_relation(member.id)
-    #     if member.is_visible() != is_checked:
-    #         member.set_visible(is_checked)
-    #     self._edit(member)
+        button_layout = QHBoxLayout()
 
-# class QCollectionPalette(QtWidgets.QWidget):
-#     def __init__(self, list_widget):
-#         QtWidgets.QWidget.__init__(self)
-#         self._list: QListWidget = list_widget
+        add_button = QPushButton("+")
+        add_button.clicked.connect(self._on_add)
+        button_layout.addWidget(add_button)
 
-#         button_layout = QHBoxLayout()
-
-#         add_button = QPushButton("+")
-#         add_button.clicked.connect(self._on_add)
-#         button_layout.addWidget(add_button)
-
-#         del_button = QPushButton("-")
-#         del_button.clicked.connect(self._on_del)
-#         button_layout.addWidget(del_button)
+        del_button = QPushButton("-")
+        del_button.clicked.connect(self._on_del)
+        button_layout.addWidget(del_button)
         
-#         button_panel = QtWidgets.QWidget()
-#         button_panel.setLayout(button_layout)
+        button_panel = QtWidgets.QWidget()
+        button_panel.setLayout(button_layout)
 
-#         palette_layout = QtWidgets.QVBoxLayout()
-#         palette_layout.addWidget(button_panel)
-#         palette_layout.addWidget(list_widget)
-#         self.setLayout(palette_layout)
+        palette_layout = QtWidgets.QVBoxLayout()
+        palette_layout.addWidget(button_panel)
+        palette_layout.addWidget(list_widget)
+        self.setLayout(palette_layout)
     
-#     def _on_add(self):
-#         self.on_add()
+    def _on_add(self):
+        self.on_add()
 
-#     def _on_del(self):
-#         self.on_delete(self._list.currentItem())
+    def _on_del(self):
+        self.on_delete(self._list.currentItem())
     
-#     def on_add(self, item):
-#         pass
+    def on_add(self, item):
+        pass
 
-#     def on_delete(self, item):
-#         pass
+    def on_delete(self, item):
+        pass
 
-# class QClassPalette(QCollectionPalette):
-#     def __init__(self, edit):
-#         QCollectionPalette.__init__(self, QClassList(edit))
+class QClassPalette(QCollectionPalette):
+    def __init__(self, edit):
+        QCollectionPalette.__init__(self, QClassList(edit))
     
-#     def on_add(self):
-#         class_id = model.make_class("Class {0}".format(self._list.count()))
+    def on_add(self):
+        class_id = model.class_new("Class {0}".format(self._list.count()))
     
-#     def on_delete(self, item):
-#         class_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
-#         model.class_delete(class_id)
+    def on_delete(self, item):
+        class_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        model.class_delete(class_id)
 
-# class QRelationPalette(QCollectionPalette):
-#     def __init__(self, relations, edit):
-#         QCollectionPalette.__init__(self, QRelationList(relations, edit))
+class QRelationPalette(QCollectionPalette):
+    def __init__(self, edit):
+        QCollectionPalette.__init__(self, QRelationList(edit))
     
-#     def on_add(self):
-#         relation_id = model.relation_new("relation {0}".format(self._list.count()))
+    def on_add(self):
+        relation_id = model.relation_new("relation {0}".format(self._list.count()))
     
-#     def on_delete(self, item):
-#         relation_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
-#         model.relation_delete(relation_id)
+    def on_delete(self, item):
+        relation_id = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        model.relation_delete(relation_id)
 
 def make_log_dock():
     textbox = QTextEdit()
@@ -823,25 +796,23 @@ def make_log_dock():
 
 def make_class_dock(editor):
     dock = QtWidgets.QDockWidget("Classes")
-    #edit = lambda class_id: editor.setWidget(QClassEditor(class_id))
     def edit(class_id):
         class_editor = QClassEditor(class_id)
         editor.setWidget(class_editor)
-    #edit = None
-    dock.setWidget(QClassList(edit))
+    dock.setWidget(QClassPalette(edit))
     return dock
 
 def make_relation_dock(editor):
     dock = QtWidgets.QDockWidget("Relations")
     edit = lambda relation: editor.setWidget(QRelationEditor(relation))
-    dock.setWidget(QRelationList(edit))
+    dock.setWidget(QRelationPalette(edit))
     return dock
 
 def make_object_dock(object_filter_id):
     filter_name = model.object_filter_get_name(object_filter_id)
     dock = QCollectionFilterDock(filter_name)
     dock.id = object_filter_id
-    list = QObjectFilter(model.objects, object_filter_id)
+    list = QObjectFilter(object_filter_id)
     dock.setWidget(list)
     return dock
 
@@ -852,14 +823,14 @@ def make_tag_dock():
     dock.setWidget(view)
     return dock
 
-class ObjectFilterDelegate(model.Delegate):
+class QMainWindowDelegate(model.Delegate):
     def __init__(self, window):
         self.window = window
     
-    def on_member_added(self, id):
+    def object_filter_created(self, id, source):
         self.window.add_object_filter(id)
     
-    def on_member_removed(self, id):
+    def object_filter_deleted(self, id, source):
         self.window.remove_object_filter(id)
 
 class QMainWindow(QtWidgets.QMainWindow):
@@ -883,9 +854,9 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._toolbar = self.addToolBar("Task")
         self.add_button("&New Object", QtWidgets.QStyle.SP_FileIcon, self._on_button_click)
 
-        # model.object_filters.add_delegate(ObjectFilterDelegate(self))
-        # self._object_filters = {}
-        # self._last_object_filter = 0
+        model.add_delegate(QMainWindowDelegate(self))
+        self._object_filters = {}
+        self._last_object_filter = 0
 
         model.class_new("Tag")
         model.class_new("Goal")
@@ -897,6 +868,7 @@ class QMainWindow(QtWidgets.QMainWindow):
             acyclic=True,
             max_outnodes=1
         )
+        model.object_filter_new("Test Filter", lambda object_id: True)
 
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
@@ -921,12 +893,12 @@ class QMainWindow(QtWidgets.QMainWindow):
         del self._object_filters[id]
     
     def _on_button_click(self, *args):
-        model.make_object_filter(
+        model.object_filter_new(
             "Actionable {0}".format(len(self._object_filters)+1),
             lang.eval(lang.read("""
                 (let ((relation-id
                         (find-first (lambda (relation-id)
-                          (= (relation-name relation-id) "has vocation")) (all-relations))))
+                          (= (relation-name relation-id) "precedes")) (all-relations))))
                   (lambda (object-id)
                     (zero? (length (innodes object-id relation-id)))))
             """))

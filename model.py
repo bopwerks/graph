@@ -1,3 +1,4 @@
+import itertools
 import event
 import random
 import lang
@@ -138,7 +139,7 @@ class Object(event.Emitter, VisibilitySuppressor):
     def suppressable_entities(self):
         for relation_id in get_relations():
             for edge_id in object_get_edges(self.id, relation_id):
-                yield get_edge(edge_id)
+                yield _get_edge(edge_id)
 
 def object_new(class_id, *values, source="model"):
     klass = _get_class(class_id)
@@ -199,9 +200,18 @@ def object_get_name(object_id):
     object = _get_object(object_id)
     return object.name
 
+def object_set_name(object_id, name, source="model"):
+    object = _get_object(object_id)
+    object.name = name
+    _emit.object_changed(object_id, source)
+
 def object_is_visible(object_id):
     object = _get_object(object_id)
     return object.is_visible()
+
+def object_get_class(object_id):
+    object = _get_object(object_id)
+    return object.klass.id
 
 # Relations
 
@@ -385,8 +395,11 @@ class Edge(event.Emitter, VisibilitySuppressor):
         self.src_id = src_id
         self.dst_id = dst_id
     
+    def suppressable_entities(self):
+        return []
+    
     def visibility_changed(self):
-        _emit.edge_changed(self.id)
+        _emit.edge_changed(self.id, "model")
 
 def edge_new(relation_id, srcid, dstid, source="model"):
     relation = _get_relation(relation_id)
@@ -509,18 +522,17 @@ class ObjectFilter(object):
         self.name = name
         self.predicate = predicate
 
-def object_filter_new(title, predicate):
+def object_filter_new(title, predicate, source="model"):
     filter = ObjectFilter(title, predicate)
     __id_entity_map[filter.id] = filter
     __type_id_map[ObjectFilter].add(filter.id)
+    _emit.object_filter_created(filter.id, source)
     return filter.id
-
-def object_filter_get(object_filter_id):
-    return __id_entity_map[object_filter_id]
 
 _get_object_filter = _make_type_getter(ObjectFilter)
 
-def object_filter_delete(object_filter_id):
+def object_filter_delete(object_filter_id, source="model"):
+    _emit.object_filter_deleted(object_filter_id, source)
     __type_id_map[ObjectFilter].remove(object_filter_id)
     del __id_entity_map[object_filter_id]
 
@@ -528,97 +540,39 @@ def object_filter_get_name(object_filter_id):
     filter = _get_object_filter(object_filter_id)
     return filter.name
 
+def object_filter_get_predicate(object_filter_id):
+    filter = _get_object_filter(object_filter_id)
+    return filter.predicate
+
+def get_object_filters():
+    return list(__type_id_map[ObjectFilter])
+
 # Event Handling
+#
+# Make a Delegate class with object_created, object_changed, object_deleted,
+# etc. methods. Then make a SuperDelegate class with the same methods which
+# forwards the calls to each of a set of Delegates.
 
-class Delegate(object):
-    def object_created(self, id, source):
-        pass
+def _event_handler(self, id, source):
+    pass
+_object_types = ["object", "class", "relation", "edge", "object_filter"]
+_event_types = ["created", "changed", "deleted"]
+_event_handler_names = ["{0}_{1}".format(e[0], e[1]) for e in itertools.product(_object_types, _event_types)]
+_event_handler_map = {name : _event_handler for name in _event_handler_names}
+Delegate = type("Delegate", (), _event_handler_map)
 
-    def object_changed(self, id, source):
-        pass
+def _super_delegate_init(self, delegates):
+    Delegate.__init__(self)
+    self.delegates = delegates
 
-    def object_deleted(self, id, source):
-        pass
-
-    def class_created(self, id, source):
-        pass
-
-    def class_changed(self, id, source):
-        pass
-
-    def class_deleted(self, id, source):
-        pass
-
-    def relation_created(self, id, source):
-        pass
-
-    def relation_changed(self, id, source):
-        pass
-
-    def relation_deleted(self, id, source):
-        pass
-
-    def edge_created(self, id, source):
-        pass
-
-    def edge_changed(self, id, source):
-        pass
-
-    def edge_deleted(self, id, source):
-        pass
-
-class __SuperDelegate(Delegate):
-    def __init__(self, delegates):
-        Delegate.__init__(self)
-        self.delegates = delegates
-
-    def object_created(self, id, source):
-        for delegate in self.delegates:
-            delegate.object_created(id, source)
-
-    def object_changed(self, id, source):
-        for delegate in self.delegates:
-            delegate.object_changed(id, source)
-
-    def object_deleted(self, id, source):
-        for delegate in self.delegates:
-            delegate.object_deleted(id, source)
-
-    def class_created(self, id, source):
-        for delegate in self.delegates:
-            delegate.class_created(id, source)
-
-    def class_changed(self, id, source):
-        for delegate in self.delegates:
-            delegate.class_changed(id, source)
-
-    def class_deleted(self, id, source):
-        for delegate in self.delegates:
-            delegate.class_deleted(id, source)
-
-    def relation_created(self, id, source):
-        for delegate in self.delegates:
-            delegate.relation_created(id, source)
-
-    def relation_changed(self, id, source):
-        for delegate in self.delegates:
-            delegate.relation_changed(id, source)
-
-    def relation_deleted(self, id, source):
-        for delegate in self.delegates:
-            delegate.relation_deleted(id, source)
-
-    def edge_created(self, id, source):
-        for delegate in self.delegates:
-            delegate.edge_created(id, source)
-
-    def edge_changed(self, id, source):
-        for delegate in self.delegates:
-            delegate.edge_changed(id, source)
-
-    def edge_deleted(self, id, source):
-        for delegate in self.delegates:
-            delegate.edge_deleted(id, source)
+def _make_super_delegate_handler(method_name):
+    def handler(self, id, source):
+        for delegate in list(self.delegates):
+            getattr(delegate, method_name)(id, source)
+    return handler
+_event_handler_map = {e : _make_super_delegate_handler(e) for e in _event_handler_names}
+_event_handler_map["__init__"] = _super_delegate_init
+__SuperDelegate = type("__SuperDelegate", (Delegate,), _event_handler_map)
 
 __delegates = set()
 _emit = __SuperDelegate(__delegates)

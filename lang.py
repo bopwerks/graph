@@ -206,7 +206,7 @@ def do_nothing(*args):
 def innodes(object_id, relation_id):
     "Returns the number of nodes with edges pointing to an object."
     try:
-        innodes_list = list(model.innodes(object_id, relation_id))
+        innodes_list = list(model.object_get_innodes(object_id, relation_id))
     except:
         innodes_list = []
     return innodes_list
