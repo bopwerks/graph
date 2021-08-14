@@ -14,18 +14,6 @@ zvalue_increment = 1.0
 newedge = None
 
 no_selected_item = None
-__selected_item = no_selected_item
-def get_selected_item():
-    global __selected_item
-    return __selected_item
-
-def set_selected_item(item):
-    global __selected_item
-    if __selected_item and __selected_item is not item:
-        __selected_item.unselect()
-    __selected_item = item
-    if item:
-        item.select()
 
 no_active_relation = 0
 active_relation = no_active_relation
@@ -217,7 +205,8 @@ class QEdge(QArrow):
             event.ignore()
             return
 
-        set_selected_item(self)
+        for view in self.scene().views():
+            view.set_selected_item(self)
 
 class QCollectionFilterDock(QtWidgets.QDockWidget):
     def __init__(self, title):
@@ -330,10 +319,11 @@ def make_edge(edge_id):
     return graphical_edge
 
 class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
-    def __init__(self, widget):
+    def __init__(self, widget, id):
         QtWidgets.QGraphicsProxyWidget.__init__(self)
         event.Emitter.__init__(self)
         self.setWidget(widget)
+        self.id = id
         self._dx = 0
         self._dy = 0
     
@@ -378,7 +368,8 @@ class QNodeProxy(QtWidgets.QGraphicsProxyWidget, event.Emitter):
         scene = event.scenePos()
 
         if button == QtCore.Qt.LeftButton:
-            set_selected_item(self)
+            for view in self.scene().views():
+                view.set_selected_item(self)
             self._dx = scene.x() - pos.x()
             self._dy = scene.y() - pos.y()
         elif button == QtCore.Qt.RightButton and is_relation_active():
@@ -480,13 +471,26 @@ def midpoint(qgraphicsitem):
     return p
 
 class QNodeView(QtWidgets.QGraphicsView):
-    def __init__(self, scene):
+    def __init__(self, scene, edit):
         super().__init__(scene)
+        self._edit = edit
         scene.setSceneRect(0, 0, self.width(), self.height())
         self.setAcceptDrops(True)
         brush = QtGui.QBrush(QtGui.QColor(64, 64, 64))
         self.setBackgroundBrush(brush)
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        self._selected_item = no_selected_item
+
+    def get_selected_item(self):
+        return self._selected_item
+
+    def set_selected_item(self, item):
+        if self._selected_item and self._selected_item is not item:
+            self._selected_item.unselect()
+        self._selected_item = item
+        if item:
+            item.select()
+        self._edit(item)
 
     def dragEnterEvent(self, event):
         event.acceptProposedAction()
@@ -500,7 +504,7 @@ class QNodeView(QtWidgets.QGraphicsView):
         class_name = model.class_get_name(class_id)
         object = make_object(class_id, "New {0}".format(class_name))
         self.scene().addItem(object)
-        set_selected_item(object)
+        self.set_selected_item(object)
 
         # Position the object so the cursor lies over its center
         position = self.mapToScene(event.pos())
@@ -511,13 +515,13 @@ class QNodeView(QtWidgets.QGraphicsView):
         self.setFocus()
 
     def keyPressEvent(self, event):
-        selected_item = get_selected_item()
+        selected_item = self.get_selected_item()
         key = event.key()
         if key == QtCore.Qt.Key_Space:
             rect = self.scene().itemsBoundingRect()
             self.scene().setSceneRect(rect)
         elif selected_item and key in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
-            set_selected_item(no_selected_item)
+            self.set_selected_item(no_selected_item)
             selected_item.delete()
 
     def wheelEvent(self, event):
@@ -530,13 +534,13 @@ class QNodeView(QtWidgets.QGraphicsView):
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        selected_item = get_selected_item()
+        selected_item = self.get_selected_item()
         if not self.itemAt(event.pos()) and selected_item:
-            set_selected_item(no_selected_item)
+            self.set_selected_item(no_selected_item)
 
 def make_graphical_object(object_id):
     qnode = QNodeWidget(object_id)
-    proxy = QNodeProxy(qnode)
+    proxy = QNodeProxy(qnode, object_id)
     qnodes[object_id] = proxy
     qnode.add_listener("object_changed", proxy._object_changed)
     return proxy
@@ -841,7 +845,13 @@ class QMainWindow(QtWidgets.QMainWindow):
         #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
         self.setWindowTitle(title)
         scene = QNodeScene()
-        view = QNodeView(scene)
+        def edit_entity(graphical_object):
+            if graphical_object == no_selected_item:
+                editor.setWidget(QtWidgets.QFrame())
+            elif type(graphical_object) == QNodeProxy:
+                object_id = graphical_object.id
+                editor.setWidget(QObjectEditor(object_id))
+        view = QNodeView(scene, edit_entity)
         self.setCentralWidget(view)
 
         # self.addDockWidget(QtCore.Qt.RightDockWidgetArea, make_tag_dock())
@@ -1053,6 +1063,27 @@ class QClassEditor(QtWidgets.QFrame):
     def _on_color_changed(self, color: QtGui.QColor):
         new_color = model.Color(color.red(), color.green(), color.blue())
         model.class_set_color(self._class_id, new_color)
+
+class QObjectEditor(QtWidgets.QFrame):
+    def __init__(self, object_id):
+        QtWidgets.QFrame.__init__(self)
+        self._layout = QtWidgets.QFormLayout()
+        self._object_id = object_id
+
+        object_name = model.object_get_name(object_id)
+        self._name = QtWidgets.QLineEdit(object_name)
+        self._name.textChanged.connect(self._on_name_changed)
+        self._layout.addRow("&Name", self._name)
+
+        # class_color = model.class_get_color(class_id)
+        # self._color = QColorWidget(QtGui.QColor(class_color.r, class_color.g, class_color.b))
+        # self._color.colorChanged.connect(self._on_color_changed)
+        # self._layout.addRow("&Color", self._color)
+
+        self.setLayout(self._layout)
+    
+    def _on_name_changed(self):
+        model.object_set_name(self._object_id, self._name.text())
 
 def make_tree(key, *children):
     parent = {
