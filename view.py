@@ -545,8 +545,8 @@ def make_graphical_object(object_id):
     qnode.add_listener("object_changed", proxy._object_changed)
     return proxy
 
-def make_object(class_id, *args):
-    object_id = model.object_new(class_id, *args, source="view")
+def make_object(class_id, name):
+    object_id = model.object_new(class_id, name, source="view")
     graphical_object = make_graphical_object(object_id)
     object_is_visible = model.object_is_visible(object_id)
     graphical_object.setVisible(object_is_visible)
@@ -869,7 +869,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._last_object_filter = 0
 
         model.class_new("Tag")
-        model.class_new("Goal")
+        goal_class = model.class_new("Goal")
         model.class_new("Task")
         model.relation_new("precedes")
         model.relation_new(
@@ -879,6 +879,8 @@ class QMainWindow(QtWidgets.QMainWindow):
             max_outnodes=1
         )
         model.object_filter_new("Test Filter", lambda object_id: True)
+        model.class_add_field(goal_class, "Number", int, 13)
+        model.class_add_field(goal_class, "Blasdfa", int, 21)
 
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
@@ -1075,10 +1077,26 @@ class QObjectEditor(QtWidgets.QFrame):
         self._name.textChanged.connect(self._on_name_changed)
         self._layout.addRow("&Name", self._name)
 
-        # class_color = model.class_get_color(class_id)
-        # self._color = QColorWidget(QtGui.QColor(class_color.r, class_color.g, class_color.b))
-        # self._color.colorChanged.connect(self._on_color_changed)
-        # self._layout.addRow("&Color", self._color)
+        # We need this function to capture the value (not the reference)
+        # of member_id in the loop below. Otherwise, all of the fields will
+        # modify the same member.
+        def make_value_changed_handler(member_id):
+            def handler(value):
+                model.member_set_value(member_id, value)
+            return handler
+
+        member_ids = model.object_get_members(object_id)
+        for member_id in member_ids:
+            field_id = model.member_get_field(member_id)
+            field_name = model.field_get_name(field_id)
+            field_type = model.field_get_type(field_id)
+            member_value = model.member_get_value(member_id)
+            if field_type == model.Integer:
+                input = QtWidgets.QSpinBox()
+                input.setSingleStep(1)
+                input.setValue(member_value)
+                input.valueChanged.connect(make_value_changed_handler(member_id))
+            self._layout.addRow(field_name, input)
 
         self.setLayout(self._layout)
     

@@ -54,20 +54,20 @@ class VisibilitySuppressor(object):
 # Classes
 
 class Class(event.Emitter, VisibilitySuppressor):
-    def __init__(self, name, color, *fields):
+    def __init__(self, name, color):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self)
         self.id = make_id()
         self.name = name
         self.color = color
-        self.fields = fields
+        self.fields = []
         self.objects = set()
     
     def suppressable_entities(self):
         for object_id in set(self.objects):
             yield _get_object(object_id)
 
-def class_new(name, *custom_fields, source="model"):
+def class_new(name, source="model"):
     klass = Class(name, Color.random())
     __id_entity_map[klass.id] = klass
     __type_id_map[Class].append(klass.id)
@@ -122,6 +122,27 @@ def class_set_color(class_id, color, source="model"):
     for object_id in klass.objects:
         _emit.object_changed(object_id, source)
 
+def class_get_fields(class_id):
+    klass = _get_class(class_id)
+    return list(klass.fields)
+
+def class_add_field(class_id, field_name, field_type, initial_value=None, source="model"):
+    klass = _get_class(class_id)
+    field = Field(klass, field_name, field_type, initial_value)
+    __id_entity_map[field.id] = field
+    __type_id_map[Field].add(field.id)
+    klass.fields.append(field.id)
+    for object_id in klass.objects:
+        object = _get_object(object_id)
+        member = Member(field)
+        __id_entity_map[member.id] = member
+        __type_id_map[Member].add(member.id)
+        object.members.append(member.id)
+    _emit.class_changed(class_id, source)
+    for object_id in klass.objects:
+        _emit.object_changed(object_id, source)
+    return field.id
+
 # Objects
 
 class Object(event.Emitter, VisibilitySuppressor):
@@ -131,7 +152,7 @@ class Object(event.Emitter, VisibilitySuppressor):
         self.id = make_id()
         self.name = "New {0}".format(klass.name)
         self.klass = klass
-        self.fields = []
+        self.members = []
     
     def visibility_changed(self):
         _emit.object_changed(self.id, "model")
@@ -141,13 +162,21 @@ class Object(event.Emitter, VisibilitySuppressor):
             for edge_id in object_get_edges(self.id, relation_id):
                 yield _get_edge(edge_id)
 
-def object_new(class_id, *values, source="model"):
+def object_new(class_id, name, source="model"):
     klass = _get_class(class_id)
-    object = Object(klass, klass.suppressors(), *values)
+    object = Object(klass, klass.suppressors())
 
     __id_entity_map[object.id] = object
     object.klass.objects.add(object.id)
     __type_id_map[Object].add(object.id)
+    
+    for field_id in klass.fields:
+        field = _get_field(field_id)
+        member = Member(field)
+        __id_entity_map[member.id] = member
+        __type_id_map[Member].add(member.id)
+        object.members.append(member.id)
+
     _emit.object_created(object.id, source)
 
     return object.id
@@ -212,6 +241,99 @@ def object_is_visible(object_id):
 def object_get_class(object_id):
     object = _get_object(object_id)
     return object.klass.id
+
+def object_get_members(object_id):
+    object = _get_object(object_id)
+    return list(object.members)
+
+# Fields
+
+class Field(object):
+    def __init__(self, klass, name, type, initial_value=None):
+        self.id = make_id()
+        self.klass = klass
+        self.name = name
+        self.type = type
+        self.initial_value = initial_value
+    
+    def is_valid(self, value):
+        return type(value) == self.type
+
+_get_field = _make_type_getter(Field)
+
+def field_get_name(field_id):
+    field = _get_field(field_id)
+    return field.name
+
+def field_set_name(field_id, name, source="model"):
+    field = _get_field(field_id)
+    field.name = name
+    _emit.class_changed(field.klass.id, source)
+    for object_id in field.klass.objects:
+        _emit.object_changed(object_id, source)
+
+def field_get_type(field_id):
+    field = _get_field(field_id)
+    return field.type
+
+def field_set_type(field_id, type, source="model"):
+    field = _get_field(field_id)
+    field.type = type
+    _emit.class_changed(field.klass.id, source)
+    for object_id in field.klass.objects:
+        _emit.object_changed(object_id, source)
+
+def field_delete(field_id, source="model"):
+    field = _get_field(field_id)
+    # Remove the field from its class, saving its position
+    position = field.klass.fields.index(field_id)
+    field.klass.fields.pop(position)
+    # Remove the associated member from each of the objects of the class
+    for object_id in field.klass.objects:
+        object = _get_object(object_id)
+        member_id = object.members[position]
+        __type_id_map[Member].remove(member_id)
+        del __id_entity_map[member_id]
+        object.members.pop(position)
+    # Signal the change to the class and object event handlers
+    _emit.class_changed(class_id, source)
+    for object_id in field.klass.objects:
+        _emit.object_changed(object_id, source)
+    # Remove the field from the top-level data structures
+    __type_id_map[Field].remove(field_id)
+    del __id_entity_map[field_id]
+
+# Members
+
+class Member(object):
+    def __init__(self, field):
+        self.id = make_id()
+        self.field = field
+        self.value = field.initial_value
+
+_get_member = _make_type_getter(Member)
+
+def member_get_value(member_id):
+    member = _get_member(member_id)
+    return member.value
+
+class InvalidTypeException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+def member_set_value(member_id, value):
+    member = _get_member(member_id)
+    if not member.field.is_valid(value):
+        raise InvalidTypeException("blam")
+    member.value = value
+
+def member_get_type(member_id):
+    member = _get_member(member_id)
+    return member.field.type
+
+def member_get_field(member_id):
+    member = _get_member(member_id)
+    return member.field.id
 
 # Relations
 
@@ -610,6 +732,8 @@ __type_id_map = {
     Object: set(),
     Relation: [],
     ObjectFilter: set(),
+    Field: set(),
+    Member: set(),
 }
 
 def _get_entity(entity_id):
@@ -631,3 +755,7 @@ def reset():
     while len(__id_entity_map) != 0:
         entity_id = list(__id_entity_map)[0]
         delete(entity_id)
+
+# Types
+
+Integer = int
