@@ -252,3 +252,63 @@ def test_edge_delete_updates_edge_list():
     model.edge_delete(edge_id)
     edges = model.get_edges()
     assert [] == edges
+
+# Fields
+
+@with_setup(teardown=model.reset)
+def test_new_class_has_no_fields():
+    class_id = model.class_new("Test Class")
+    field_ids = model.class_get_fields(class_id)
+    assert [] == field_ids
+
+@with_setup(teardown=model.reset)
+def test_no_field_class_has_instances_with_no_members():
+    class_id = model.class_new("Test Class")
+    object_id = model.object_new(class_id)
+    member_ids = model.object_get_members(object_id)
+    assert [] == member_ids
+
+@with_setup(teardown=model.reset)
+def test_class_add_int_field_adds_one_field_id():
+    class_id = model.class_new("Test Class")
+    field_id = model.class_add_field(class_id, "Test Field", model.Integer)
+    field_ids = model.class_get_fields(class_id)
+    assert [field_id] == field_ids
+
+@with_setup(teardown=model.reset)
+def test_class_delete_field():
+    class_id = model.class_new("Test Class")
+    field_id = model.class_add_field(class_id, "Test Field", model.Integer)
+    model.field_delete(field_id)
+    field_ids = model.class_get_fields(class_id)
+    assert [] == field_ids
+
+@with_setup(teardown=model.reset)
+def test_added_field_present_in_object_instance():
+    class_id = model.class_new("Test Class")
+    expected_field_id = model.class_add_field(class_id, "Test Field", model.Integer)
+    object_id = model.object_new(class_id)
+    member_ids = model.object_get_members(object_id)
+    assert len(member_ids) == 1
+    member_id = member_ids[0]
+    actual_field_id = model.member_get_field(member_id)
+    assert actual_field_id == expected_field_id
+
+@with_setup(teardown=model.reset)
+def test_field_added_after_object_created_is_present_in_object():
+    class_id = model.class_new("Test Class")
+    object_id = model.object_new(class_id)
+    expected_field_id = model.class_add_field(class_id, "Test Field", model.Integer)
+    member_ids = model.object_get_members(object_id)
+    assert len(member_ids) == 1
+    member_id = member_ids[0]
+    actual_field_id = model.member_get_field(member_id)
+    assert actual_field_id == expected_field_id
+
+@with_setup(teardown=model.reset)
+def test_field_removed_after_object_created_is_removed_from_object():
+    class_id = model.class_new("Test Class")
+    field_id = model.class_add_field(class_id, "Test Field", model.Integer)
+    object_id = model.object_new(class_id)
+    model.field_delete(field_id)
+    assert [] == model.object_get_members(object_id)

@@ -90,6 +90,8 @@ def class_delete(class_id, source="model"):
     klass = _get_class(class_id)
     for object_id in set(klass.objects):
         object_delete(object_id)
+    for field_id in list(klass.fields):
+        field_delete(field_id)
     _emit.class_deleted(class_id, source)
     __type_id_map[Class].remove(class_id)
     del __id_entity_map[class_id]
@@ -162,7 +164,7 @@ class Object(event.Emitter, VisibilitySuppressor):
             for edge_id in object_get_edges(self.id, relation_id):
                 yield _get_edge(edge_id)
 
-def object_new(class_id, name, source="model"):
+def object_new(class_id, source="model"):
     klass = _get_class(class_id)
     object = Object(klass, klass.suppressors())
 
@@ -190,8 +192,11 @@ def object_delete(object_id, source="model"):
     object = _get_object(object_id)
     for relation_id in __type_id_map[Relation]:
         object_delete_edges(object_id, relation_id)
-        
     _emit.object_deleted(object_id, source)
+    for member_id in list(object.members):
+        __type_id_map[Member].remove(member_id)
+        del __id_entity_map[member_id]
+    object.members = []
     __type_id_map[Object].remove(object_id)
     object.klass.objects.remove(object_id)
     del __id_entity_map[object_id]
@@ -254,7 +259,7 @@ class Field(object):
         self.klass = klass
         self.name = name
         self.type = type
-        self.initial_value = initial_value
+        self.initial_value = initial_value if type.is_valid(initial_value) else type.initial_value
     
     def is_valid(self, value):
         return type(value) == self.type
@@ -296,7 +301,7 @@ def field_delete(field_id, source="model"):
         del __id_entity_map[member_id]
         object.members.pop(position)
     # Signal the change to the class and object event handlers
-    _emit.class_changed(class_id, source)
+    _emit.class_changed(field.klass.id, source)
     for object_id in field.klass.objects:
         _emit.object_changed(object_id, source)
     # Remove the field from the top-level data structures
@@ -323,13 +328,9 @@ class InvalidTypeException(Exception):
 
 def member_set_value(member_id, value):
     member = _get_member(member_id)
-    if not member.field.is_valid(value):
+    if not member.field.type.is_valid(value):
         raise InvalidTypeException("blam")
     member.value = value
-
-def member_get_type(member_id):
-    member = _get_member(member_id)
-    return member.field.type
 
 def member_get_field(member_id):
     member = _get_member(member_id)
@@ -747,15 +748,39 @@ def delete(entity_id):
         Edge: edge_delete,
         Object: object_delete,
         Relation: relation_delete,
+        Field: field_delete,
     }
     assert entity_type in type_delete_map
     type_delete_map[entity_type](entity_id)
 
 def reset():
-    while len(__id_entity_map) != 0:
-        entity_id = list(__id_entity_map)[0]
-        delete(entity_id)
+    for type, v in __type_id_map.items():
+        if type == Member:
+            continue
+        for entity_id in list(v):
+            delete(entity_id)
+    for type, v in __type_id_map.items():
+        assert len(v) == 0
+    assert len(__id_entity_map) == 0
 
 # Types
 
-Integer = int
+class Integer(object):
+    initial_value = 0
+    is_valid = lambda value: type(value) == int
+    convert = lambda value: int(value)
+
+class Float(object):
+    initial_value = 0.0
+    is_valid = lambda value: type(value) == float
+    convert = lambda value: float(value)
+
+class String(object):
+    initial_value = ""
+    is_valid = lambda value: type(value) == str
+    convert = lambda value: str(value)
+
+class Bool(object):
+    initial_value = False
+    is_valid = lambda value: type(value) == bool
+    convert = lambda value: bool(value)

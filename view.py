@@ -4,6 +4,7 @@ import lang
 import log
 import model
 import event
+import sys
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5 import QtGui
@@ -273,25 +274,15 @@ class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
         row = nrows - 1
         self.setRowCount(nrows)
         self.insert_object(object_id, row)
-
-        # class_id = model.object_get_class(object_id)
-        # class_name = model.class_get_name(class_id)
-        # class_item = QtWidgets.QTableWidgetItem(class_name)
-        # class_item.setFlags(class_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
-        # self.table.setItem(row, 0, class_item)
-
-        # object_name = model.object_get_name(object_id)
-        # object_item = QtWidgets.QTableWidgetItem(object_name)
-        # self.table.setItem(row, 1, object_item)
     
     def object_changed(self, object_id, source):
         if not self.predicate(object_id):
-            self.remove_object(object_id)
+            self.object_deleted(object_id, source)
         elif object_id in self._matches:
             row = self._matches_list.index(object_id)
             self.insert_object(object_id, row)
         else:
-            self.add_object(object_id)
+            self.object_created(object_id, source)
     
     def object_deleted(self, object_id, source):
         if object_id in self._matches:
@@ -501,8 +492,7 @@ class QNodeView(QtWidgets.QGraphicsView):
     def dropEvent(self, event):
         event.acceptProposedAction()
         class_id = int(event.mimeData().text())
-        class_name = model.class_get_name(class_id)
-        object = make_object(class_id, "New {0}".format(class_name))
+        object = make_object(class_id)
         self.scene().addItem(object)
         self.set_selected_item(object)
 
@@ -545,8 +535,8 @@ def make_graphical_object(object_id):
     qnode.add_listener("object_changed", proxy._object_changed)
     return proxy
 
-def make_object(class_id, name):
-    object_id = model.object_new(class_id, name, source="view")
+def make_object(class_id):
+    object_id = model.object_new(class_id, source="view")
     graphical_object = make_graphical_object(object_id)
     object_is_visible = model.object_is_visible(object_id)
     graphical_object.setVisible(object_is_visible)
@@ -879,8 +869,10 @@ class QMainWindow(QtWidgets.QMainWindow):
             max_outnodes=1
         )
         model.object_filter_new("Test Filter", lambda object_id: True)
-        model.class_add_field(goal_class, "Number", int, 13)
-        model.class_add_field(goal_class, "Blasdfa", int, 21)
+        model.class_add_field(goal_class, "Foo", model.Integer, 13)
+        model.class_add_field(goal_class, "Bar", model.Bool, True)
+        model.class_add_field(goal_class, "Baz", model.String, "Quux")
+        model.class_add_field(goal_class, "Flufu", model.Float, 3.14)
 
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
@@ -1005,14 +997,17 @@ class QRelationEditor(QtWidgets.QFrame):
         self._layout.addRow("Max Out-Nodes", self._max_outnodes)
         # TODO: Add handler to check if the proposed value is valid before changing
 
+        fixed_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         relation_on_add_handler = model.relation_get_on_add_handler(relation_id)
         self._on_add = QtWidgets.QTextEdit()
+        self._on_add.setFont(fixed_font)
         self._on_add.setText(relation_on_add_handler)
         self._on_add.textChanged.connect(self._on_add_changed)
         self._layout.addRow("On Add", self._on_add)
 
         relation_on_delete_handler = model.relation_get_on_delete_handler(relation_id)
         self._on_delete = QtWidgets.QTextEdit()
+        self._on_delete.setFont(fixed_font)
         self._on_delete.setText(relation_on_delete_handler)
         self._on_delete.textChanged.connect(self._on_delete_changed)
         self._layout.addRow("On Delete", self._on_delete)
@@ -1080,9 +1075,25 @@ class QObjectEditor(QtWidgets.QFrame):
         # We need this function to capture the value (not the reference)
         # of member_id in the loop below. Otherwise, all of the fields will
         # modify the same member.
-        def make_value_changed_handler(member_id):
+        def make_int_changed_handler(member_id):
             def handler(value):
                 model.member_set_value(member_id, value)
+            return handler
+        
+        def make_bool_changed_handler(member_id):
+            def handler(value):
+                model.member_set_value(member_id, bool(value))
+            return handler
+        
+        def make_str_changed_handler(member_id, input):
+            def handler(value):
+                model.member_set_value(member_id, input.text())
+            return handler
+        
+        def make_float_changed_handler(member_id, input):
+            def handler(value):
+                new_value = float(input.text()) if input.text() else 0.0
+                model.member_set_value(member_id, new_value)
             return handler
 
         member_ids = model.object_get_members(object_id)
@@ -1094,8 +1105,23 @@ class QObjectEditor(QtWidgets.QFrame):
             if field_type == model.Integer:
                 input = QtWidgets.QSpinBox()
                 input.setSingleStep(1)
+                INT_MIN = -(2**31)
+                INT_MAX = (2**31) - 1
+                input.setRange(INT_MIN, INT_MAX)
                 input.setValue(member_value)
-                input.valueChanged.connect(make_value_changed_handler(member_id))
+                input.valueChanged.connect(make_int_changed_handler(member_id))
+            if field_type == model.Float:
+                input = QtWidgets.QLineEdit(str(member_value))
+                restrict_to_floats = QtGui.QDoubleValidator()
+                input.setValidator(restrict_to_floats)
+                input.textChanged.connect(make_float_changed_handler(member_id, input))
+            elif field_type == model.Bool:
+                input = QtWidgets.QCheckBox()
+                input.setCheckState(member_value)
+                input.stateChanged.connect(make_bool_changed_handler(member_id))
+            elif field_type == model.String:
+                input = QtWidgets.QLineEdit(member_value)
+                input.textChanged.connect(make_str_changed_handler(member_id, input))
             self._layout.addRow(field_name, input)
 
         self.setLayout(self._layout)
