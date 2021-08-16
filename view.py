@@ -247,15 +247,12 @@ class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
         header_title.setTextAlignment(QtCore.Qt.AlignLeft)
         self.setHorizontalHeaderItem(1, header_title)
 
-        self.cellChanged.connect(self._cellChanged)
-
         for object_id in model.get_objects():
             self.object_created(object_id, "view")
 
         model.add_delegate(self)
     
     def insert_object(self, object_id, row):
-        self.cellChanged.disconnect(self._cellChanged)
         class_id = model.object_get_class(object_id)
         class_name = model.class_get_name(class_id)
         class_item = QtWidgets.QTableWidgetItem(class_name)
@@ -264,8 +261,8 @@ class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
 
         object_name = model.object_get_name(object_id)
         object_item = QtWidgets.QTableWidgetItem(object_name)
+        object_item.setFlags(object_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
         self.setItem(row, 1, object_item)
-        self.cellChanged.connect(self._cellChanged)
     
     def object_created(self, object_id, source):
         self._matches_list.append(object_id)
@@ -293,11 +290,6 @@ class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
 
     def closeEvent(self, event):
         model.remove_delegate(self)
-
-    def _cellChanged(self, row, col):
-        object_id = self._matches_list[row]
-        item = self.item(row, col)
-        model.object_set_name(object_id, item.text())
 
 def make_edge(edge_id):
     relation_id = model.edge_get_relation(edge_id)
@@ -1092,8 +1084,11 @@ class QObjectEditor(QtWidgets.QFrame):
         
         def make_float_changed_handler(member_id, input):
             def handler(value):
-                new_value = float(input.text()) if input.text() else 0.0
-                model.member_set_value(member_id, new_value)
+                try:
+                    new_value = float(input.text())
+                    model.member_set_value(member_id, new_value)
+                except:
+                    pass
             return handler
 
         member_ids = model.object_get_members(object_id)
@@ -1110,7 +1105,7 @@ class QObjectEditor(QtWidgets.QFrame):
                 input.setRange(INT_MIN, INT_MAX)
                 input.setValue(member_value)
                 input.valueChanged.connect(make_int_changed_handler(member_id))
-            if field_type == model.Float:
+            elif field_type == model.Float:
                 input = QtWidgets.QLineEdit(str(member_value))
                 restrict_to_floats = QtGui.QDoubleValidator()
                 input.setValidator(restrict_to_floats)

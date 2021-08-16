@@ -104,6 +104,8 @@ def class_set_name(class_id, name, source="model"):
     klass = _get_class(class_id)
     klass.name = name
     _emit.class_changed(class_id, source)
+    for object_id in klass.objects:
+        _emit.object_changed(object_id, source)
 
 def class_is_visible(class_id):
     klass = _get_class(class_id)
