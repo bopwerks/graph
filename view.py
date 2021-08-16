@@ -773,7 +773,9 @@ class QRelationPalette(QCollectionPalette):
         model.relation_delete(relation_id)
 
 def make_log_dock():
+    fixed_font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
     textbox = QTextEdit()
+    textbox.setFont(fixed_font)
     textbox.setReadOnly(True)
     log.set_logger(QLogger(textbox))
     dock = QtWidgets.QDockWidget("Log Messages")
