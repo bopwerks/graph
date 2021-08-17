@@ -1030,11 +1030,94 @@ class QRelationEditor(QtWidgets.QFrame):
     def _on_delete_changed(self):
         model.relation_set_on_delete_handler(self._relation_id, self._on_delete.toPlainText())
 
-class QIntegerField(QtWidgets.QFrame):
-    def __init__(self, field_id):
-        self.field_id = field_id
+def make_field_initial_value_input(field_id):
+    field_type = model.field_get_type(field_id)
+    field_value = model.field_get_initial_value(field_id)
 
-        layout = Qt
+    if field_type == model.Integer:
+        input = QtWidgets.QSpinBox()
+        input.setSingleStep(1)
+        INT_MIN = -(2**31)
+        INT_MAX = (2**31) - 1
+        input.setRange(INT_MIN, INT_MAX)
+        input.setValue(field_value)
+        def handler(value):
+            model.field_set_initial_value(field_id, value)
+        input.valueChanged.connect(handler)
+    elif field_type == model.Float:
+        input = QtWidgets.QLineEdit(str(field_value))
+        restrict_to_floats = QtGui.QDoubleValidator()
+        input.setValidator(restrict_to_floats)
+        def handler(value):
+            try:
+                new_value = float(input.text())
+                model.field_set_initial_value(field_id, new_value)
+            except:
+                pass
+        input.textChanged.connect(handler)
+    elif field_type == model.Bool:
+        input = QtWidgets.QCheckBox()
+        input.setCheckState(field_value)
+        def handler(value):
+            model.field_set_initial_value(field_id, bool(value))
+        input.stateChanged.connect(handler)
+    elif field_type == model.String:
+        input = QtWidgets.QLineEdit(field_value)
+        def handler(value):
+            model.field_set_initial_value(field_id, input.text())
+        input.textChanged.connect(handler)
+    else:
+        assert False, "Field type {0} is not accounted for.".format(field_type)
+
+    return input
+
+class QClassField(QtWidgets.QFrame):
+    deleted = QtCore.pyqtSignal(QtWidgets.QFrame)
+
+    def __init__(self, field_id):
+        QtWidgets.QFrame.__init__(self)
+        self._field_id = field_id
+        field_layout = QtWidgets.QHBoxLayout()
+
+        # Delete button
+        delete_btn = QtWidgets.QPushButton("X")
+        def delete_field():
+            self.deleted.emit(self)
+        delete_btn.clicked.connect(delete_field)
+        field_layout.addWidget(delete_btn)
+
+        info = QtWidgets.QFrame()
+        info_layout = QtWidgets.QFormLayout()
+
+        # Field name
+        field_name = model.field_get_name(field_id)
+        field_name_input = QtWidgets.QLineEdit(field_name)
+        def set_field_name():
+            model.field_set_name(field_id, field_name_input.text())
+        field_name_input.textChanged.connect(set_field_name)
+        info_layout.addRow("Name", field_name_input)
+
+        # Field type
+        field_type = model.field_get_type(field_id)
+        field_type_input: QtWidgets.QComboBox = QtWidgets.QComboBox()
+        valid_types = [model.Integer, model.Float, model.Bool, model.String]
+        for type in valid_types:
+            field_type_input.addItem(type.__name__, type)
+        field_type_input.setCurrentIndex(valid_types.index(field_type))
+        def set_field_type(field_type_index):
+            model.field_set_type(field_id, valid_types[field_type_index])
+            info_layout.removeRow(self._initial_value_input)
+            self._initial_value_input = make_field_initial_value_input(field_id)
+            info_layout.addRow("Initial Value", self._initial_value_input)
+        field_type_input.currentIndexChanged.connect(set_field_type)
+        info_layout.addRow("Type", field_type_input)
+
+        self._initial_value_input = make_field_initial_value_input(field_id)
+        info_layout.addRow("Initial Value", self._initial_value_input)
+
+        info.setLayout(info_layout)
+        field_layout.addWidget(info)
+        self.setLayout(field_layout)
 
 class QClassEditor(QtWidgets.QFrame):
     def __init__(self, class_id):
@@ -1058,119 +1141,27 @@ class QClassEditor(QtWidgets.QFrame):
 
         common_fields.setLayout(common_fields_layout)
         editor_layout.addWidget(common_fields)
-
-        def make_int_changed_handler(field_id):
-            def handler(value):
-                model.field_set_initial_value(field_id, value)
-            return handler
         
-        def make_bool_changed_handler(field_id):
-            def handler(value):
-                model.field_set_initial_value(field_id, bool(value))
-            return handler
-        
-        def make_str_changed_handler(field_id, input):
-            def handler(value):
-                model.field_set_initial_value(field_id, input.text())
-            return handler
-        
-        def make_float_changed_handler(field_id, input):
-            def handler(value):
-                try:
-                    new_value = float(input.text())
-                    model.field_set_initial_value(field_id, new_value)
-                except:
-                    pass
-            return handler
-        
-        def make_delete_field_fn(editor_layout, widget, field_id):
-            def delete_field():
+        def add_field(field_id):
+            field = QClassField(field_id)
+            def delete_field(widget):
                 editor_layout.removeWidget(widget)
                 widget.setHidden(True)
-                self.setLayout(editor_layout)
+                # self.setLayout(editor_layout)
                 model.field_delete(field_id)
-            return delete_field
+            field.deleted.connect(delete_field)
+            editor_layout.addWidget(field)
         
-        def make_name_change_fn(field_id, input):
-            def handler(value):
-                new_name = input.text()
-                model.field_set_name(field_id, new_name)
-            return handler
-        
-        def add_field(editor_layout, field_id):
-            field_name = model.field_get_name(field_id)
-            field_type = model.field_get_type(field_id)
-            field_value = model.field_get_initial_value(field_id)
-            
-            field_frame = QtWidgets.QFrame()
-            field_layout = QtWidgets.QHBoxLayout()
-            
-            delete_field_button = QtWidgets.QPushButton("X")
-            delete_fn = make_delete_field_fn(editor_layout, field_frame, field_id)
-            delete_field_button.clicked.connect(delete_fn)
-            field_layout.addWidget(delete_field_button)
-
-            field_info = QtWidgets.QFrame()
-            field_info_layout = QtWidgets.QFormLayout()
-
-            field_name_widget = QtWidgets.QLineEdit(field_name)
-            field_name_widget.textChanged.connect(make_name_change_fn(field_id, field_name_widget))
-            field_info_layout.addRow("Name", field_name_widget)
-
-            def set_type(valid_type_index):
-                new_type = valid_types[valid_type_index]
-                model.field_set_type(field_id, new_type)
-                new_value = model.field_get_initial_value(field_id)
-                # TODO: Replace input box with new input for corresponding type
-
-            field_type_widget: QtWidgets.QComboBox = QtWidgets.QComboBox()
-            for type in valid_types:
-                field_type_widget.addItem(type.__name__, type)
-            field_type_widget.setCurrentIndex(valid_types.index(field_type))
-            # TODO: field_type_widget.currentIndexChanged.connect(set_type)
-            field_info_layout.addRow("Type", field_type_widget)
-
-            if field_type == model.Integer:
-                input = QtWidgets.QSpinBox()
-                input.setSingleStep(1)
-                INT_MIN = -(2**31)
-                INT_MAX = (2**31) - 1
-                input.setRange(INT_MIN, INT_MAX)
-                input.setValue(field_value)
-                input.valueChanged.connect(make_int_changed_handler(field_id))
-            elif field_type == model.Float:
-                input = QtWidgets.QLineEdit(str(field_value))
-                restrict_to_floats = QtGui.QDoubleValidator()
-                input.setValidator(restrict_to_floats)
-                input.textChanged.connect(make_float_changed_handler(field_id, input))
-            elif field_type == model.Bool:
-                input = QtWidgets.QCheckBox()
-                input.setCheckState(field_value)
-                input.stateChanged.connect(make_bool_changed_handler(field_id))
-            elif field_type == model.String:
-                input = QtWidgets.QLineEdit(field_value)
-                input.textChanged.connect(make_str_changed_handler(field_id, input))
-            field_info_layout.addRow("Initial Value", input)
-
-            field_info.setLayout(field_info_layout)
-            field_layout.addWidget(field_info)
-            field_frame.setLayout(field_layout)
-        
-            editor_layout.addWidget(field_frame)
-        
-        def make_new_field_fn(editor_layout, class_id):
-            def new_field():
-                field_id = model.class_add_field(class_id, "New Field", model.Integer)
-                add_field(editor_layout, field_id)
-            return new_field
+        def new_field():
+            field_id = model.class_add_field(class_id, "New Field", model.Integer)
+            add_field(field_id)
 
         add_field_button = QtWidgets.QPushButton("Add Field")
-        add_field_button.clicked.connect(make_new_field_fn(editor_layout, class_id))
+        add_field_button.clicked.connect(new_field)
         editor_layout.addWidget(add_field_button)
-        valid_types = [model.Integer, model.Float, model.Bool, model.String]
-        for field_id in model.class_get_fields(class_id):
-            add_field(editor_layout, field_id)
 
+        for field_id in model.class_get_fields(class_id):
+            add_field(field_id)
         self.setLayout(editor_layout)
     
     def _on_name_changed(self):

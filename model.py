@@ -263,6 +263,9 @@ class Field(object):
         self.type = type
         self.initial_value = initial_value if type.is_valid(initial_value) else type.initial_value
     
+    def convert(self, value):
+        return self.type.convert(value)
+    
     def is_valid(self, value):
         return type(value) == self.type
 
@@ -293,12 +296,87 @@ def field_set_initial_value(field_id, value):
         raise InvalidTypeException()
     field.initial_value = value
 
-def field_set_type(field_id, type, source="model"):
+def make_str_to(type_or_field):
+    def str_to(old_value):
+        try:
+            new_value = type_or_field.convert(old_value)
+        except:
+            new_value = type_or_field.initial_value
+        return new_value
+    return str_to
+
+# When converting a field value, failure to convert uses type initial value
+# When converting a member value, failure to convert uses field initial value
+
+def field_set_type(field_id, new_type, source="model"):
     field = _get_field(field_id)
-    field.type = type
+    convert_field_value = {
+        Integer: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        },
+        String: {
+            Integer: make_str_to(Integer),
+            String: str,
+            Float: make_str_to(Float),
+            Bool: bool,
+        },
+        Float: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        },
+        Bool: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        }
+    }
+    convert_member_value = {
+        Integer: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        },
+        String: {
+            Integer: make_str_to(field),
+            String: str,
+            Float: make_str_to(field),
+            Bool: bool,
+        },
+        Float: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        },
+        Bool: {
+            Integer: int,
+            String: str,
+            Float: float,
+            Bool: bool,
+        }
+    }
+    old_type = field.type
+    old_initial_value = field.initial_value
+    new_initial_value = convert_field_value[old_type][new_type](old_initial_value)
+    field.type = new_type
+    field.initial_value = new_initial_value
+
     _emit.class_changed(field.klass.id, source)
+    position = field.klass.fields.index(field_id)
     for object_id in field.klass.objects:
-        # TODO: Convert type of corresponding member in object
+        # Convert type of corresponding member in object
+        object = _get_object(object_id)
+        member_id = object.members[position]
+        old_member_value = member_get_value(member_id)
+        new_member_value = convert_member_value[old_type][new_type](old_member_value)
+        member_set_value(member_id, new_member_value)
         _emit.object_changed(object_id, source)
 
 def field_delete(field_id, source="model"):
