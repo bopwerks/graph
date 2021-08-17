@@ -283,11 +283,22 @@ def field_get_type(field_id):
     field = _get_field(field_id)
     return field.type
 
+def field_get_initial_value(field_id):
+    field = _get_field(field_id)
+    return field.initial_value
+
+def field_set_initial_value(field_id, value):
+    field = _get_field(field_id)
+    if not field.type.is_valid(value):
+        raise InvalidTypeException()
+    field.initial_value = value
+
 def field_set_type(field_id, type, source="model"):
     field = _get_field(field_id)
     field.type = type
     _emit.class_changed(field.klass.id, source)
     for object_id in field.klass.objects:
+        # TODO: Convert type of corresponding member in object
         _emit.object_changed(object_id, source)
 
 def field_delete(field_id, source="model"):
