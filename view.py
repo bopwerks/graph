@@ -824,6 +824,7 @@ class QMainWindowDelegate(model.Delegate):
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
+        self._filename = ""
 
         # set size to 70% of screen
         #self.resize(QtWidgets.QDesktopWidget().availableGeometry(self).size() * 0.7)
@@ -852,21 +853,51 @@ class QMainWindow(QtWidgets.QMainWindow):
         self._object_filters = {}
         self._last_object_filter = 0
 
+        file_menu = self.menuBar().addMenu("&File")
+        new_file = QtWidgets.QAction("&New", self)
+        new_file.triggered.connect(self._new_file)
+        file_menu.addAction(new_file)
+        save_file = QtWidgets.QAction("&Save", self)
+        save_file.triggered.connect(self._save_file)
+        file_menu.addAction(save_file)
+        save_file_as = QtWidgets.QAction("Save &As", self)
+        save_file_as.triggered.connect(self._save_file_as)
+        file_menu.addAction(save_file_as)
+
         model.class_new("Tag")
         goal_class = model.class_new("Goal")
         model.class_new("Task")
         model.relation_new("precedes")
-        model.relation_new(
-            "is a child of",
-            directed=True,
-            acyclic=True,
-            max_outnodes=1
-        )
+        relation_id = model.relation_new("is a child of")
+        model.relation_set_directed(relation_id, True)
+        model.relation_set_acyclic(relation_id, True)
+        model.relation_set_max_outnodes(relation_id, 1)
         model.object_filter_new("Test Filter", lambda object_id: True)
         model.class_add_field(goal_class, "Foo", model.Integer, 13)
         model.class_add_field(goal_class, "Bar", model.Bool, True)
         model.class_add_field(goal_class, "Baz", model.String, "Quux")
         model.class_add_field(goal_class, "Flufu", model.Float, 3.14)
+    
+    def _new_file(self, is_checked):
+        # TODO: Ask user if they want to save their work.
+        model.reset()
+    
+    def _save_file(self, is_checked):
+        user_cancelled_save = True
+        if not self._filename:
+            self._filename, filename_filter = QtWidgets.QFileDialog.getSaveFileName(self)
+            log.info("Filename: '%s', %s", self._filename, filename_filter)
+            user_cancelled_save = not self._filename
+        if not user_cancelled_save:
+            with open(self._filename, 'w') as fp:
+                model.write(fp)
+    
+    def _save_file_as(self, is_checked):
+        # TODO: Ask the user to choose a path
+        user_cancelled_save = True
+        if not user_cancalled_save:
+            with open(self._filename, 'w') as fp:
+                model.write(fp)
 
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
@@ -887,6 +918,7 @@ class QMainWindow(QtWidgets.QMainWindow):
     
     def remove_object_filter(self, id):
         dock = self._object_filters[id]
+        dock.to_be_deleted = True
         dock.close()
         del self._object_filters[id]
     

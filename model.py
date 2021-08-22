@@ -10,6 +10,10 @@ def make_id():
     _id += 1
     return _id
 
+class TypeRepr(type):
+    def __repr__(klass):
+        return klass.__name__
+
 class Color(object):
     def __init__(self, r, g, b):
         self.r = r
@@ -53,11 +57,11 @@ class VisibilitySuppressor(object):
 
 # Classes
 
-class Class(event.Emitter, VisibilitySuppressor):
-    def __init__(self, name, color):
+class Class(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
+    def __init__(self, id, name, color):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self)
-        self.id = make_id()
+        self.id = id
         self.name = name
         self.color = color
         self.fields = []
@@ -66,13 +70,31 @@ class Class(event.Emitter, VisibilitySuppressor):
     def suppressable_entities(self):
         for object_id in set(self.objects):
             yield _get_object(object_id)
+    
+    def to_dict(self):
+        return {
+            "type": Class,
+            "id": self.id,
+            "name": self.name,
+            "color": self.color,
+            "fields": list(self.fields),
+            "objects": set(self.objects),
+        }
+    
+    @classmethod
+    def from_dict(d):
+        klass = Class(d["id"], d["name"], d["color"])
+        klass.fields = d["fields"]
+        klass.objects = d["objects"]
+        return klass
 
 def class_new(name, source="model"):
-    klass = Class(name, Color.random())
-    __id_entity_map[klass.id] = klass
-    __type_id_map[Class].append(klass.id)
-    _emit.class_created(klass.id, source)
-    return klass.id
+    id = make_id()
+    klass = Class(id, name, Color.random())
+    __id_entity_map[id] = klass
+    __type_id_map[Class].append(id)
+    _emit.class_created(id, source)
+    return id
 
 def _make_type_getter(expected_type):
     def getter(entity_id):
@@ -132,30 +154,33 @@ def class_get_fields(class_id):
 
 def class_add_field(class_id, field_name, field_type, initial_value=None, source="model"):
     klass = _get_class(class_id)
-    field = Field(klass, field_name, field_type, initial_value)
-    __id_entity_map[field.id] = field
-    __type_id_map[Field].add(field.id)
-    klass.fields.append(field.id)
+    field_id = make_id()
+    field = Field(field_id, class_id, field_name, field_type, initial_value)
+    __id_entity_map[field_id] = field
+    __type_id_map[Field].add(field_id)
+    klass.fields.append(field_id)
     for object_id in klass.objects:
         object = _get_object(object_id)
-        member = Member(field)
-        __id_entity_map[member.id] = member
-        __type_id_map[Member].add(member.id)
-        object.members.append(member.id)
+        member_id = make_id()
+        member = Member(member_id, field_id)
+        __id_entity_map[member_id] = member
+        __type_id_map[Member].add(member_id)
+        object.members.append(member_id)
     _emit.class_changed(class_id, source)
     for object_id in klass.objects:
         _emit.object_changed(object_id, source)
-    return field.id
+    return field_id
 
 # Objects
 
-class Object(event.Emitter, VisibilitySuppressor):
-    def __init__(self, klass, suppressors, *values):
+class Object(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
+    def __init__(self, id, class_id, suppressors, *values):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self, suppressors)
-        self.id = make_id()
-        self.name = "New {0}".format(klass.name)
-        self.klass = klass
+        self.id = id
+        type_name = class_get_name(class_id)
+        self.name = "New {0}".format(type_name)
+        self.klass = class_id
         self.members = []
     
     def visibility_changed(self):
@@ -166,24 +191,42 @@ class Object(event.Emitter, VisibilitySuppressor):
             for edge_id in object_get_edges(self.id, relation_id):
                 yield _get_edge(edge_id)
 
+    def to_dict(self):
+        return {
+            "type": Object,
+            "id": self.id,
+            "name": self.name,
+            "class_id": self.klass,
+            "members": self.members,
+            "suppressors": self._suppressors,
+        }
+    
+    @classmethod
+    def from_dict(d):
+        object = Object(d["id"], d["class_id"], d["suppressors"])
+        object.name = d["name"]
+        object.members = d["members"]
+        return object
+
 def object_new(class_id, source="model"):
     klass = _get_class(class_id)
-    object = Object(klass, klass.suppressors())
+    object_id = make_id()
+    object = Object(object_id, class_id, klass.suppressors())
 
-    __id_entity_map[object.id] = object
-    object.klass.objects.add(object.id)
-    __type_id_map[Object].add(object.id)
+    __id_entity_map[object_id] = object
+    klass.objects.add(object_id)
+    __type_id_map[Object].add(object_id)
     
     for field_id in klass.fields:
-        field = _get_field(field_id)
-        member = Member(field)
+        member_id = make_id()
+        member = Member(member_id, field_id)
         __id_entity_map[member.id] = member
         __type_id_map[Member].add(member.id)
         object.members.append(member.id)
 
-    _emit.object_created(object.id, source)
+    _emit.object_created(object_id, source)
 
-    return object.id
+    return object_id
 
 _get_object = _make_type_getter(Object)
 
@@ -200,7 +243,8 @@ def object_delete(object_id, source="model"):
         del __id_entity_map[member_id]
     object.members = []
     __type_id_map[Object].remove(object_id)
-    object.klass.objects.remove(object_id)
+    klass = _get_class(object.klass)
+    klass.objects.remove(object_id)
     del __id_entity_map[object_id]
 
 def object_get_innodes(object_id, relation_id):
@@ -230,7 +274,8 @@ def object_get_edges(object_id, relation_id):
 
 def object_get_color(object_id):
     object = _get_object(object_id)
-    return object.klass.color
+    klass = _get_class(object.klass)
+    return klass.color
 
 def object_get_name(object_id):
     object = _get_object(object_id)
@@ -247,7 +292,8 @@ def object_is_visible(object_id):
 
 def object_get_class(object_id):
     object = _get_object(object_id)
-    return object.klass.id
+    klass = _get_class(object.klass)
+    return klass.id
 
 def object_get_members(object_id):
     object = _get_object(object_id)
@@ -255,11 +301,11 @@ def object_get_members(object_id):
 
 # Fields
 
-class Field(object):
-    def __init__(self, klass, name, type, initial_value=None):
-        self.id = make_id()
-        self.klass = klass
+class Field(object, metaclass=TypeRepr):
+    def __init__(self, id, class_id, name, type, initial_value=None):
+        self.id = id
         self.name = name
+        self.klass = class_id
         self.type = type
         self.initial_value = initial_value if type.is_valid(initial_value) else type.initial_value
     
@@ -268,6 +314,21 @@ class Field(object):
     
     def is_valid(self, value):
         return type(value) == self.type
+
+    def to_dict(self):
+        return {
+            "type": Field,
+            "id": self.id,
+            "name": self.name,
+            "class_id": self.klass,
+            "field_type": self.type,
+            "initial_value": self.initial_value,
+        }
+    
+    @classmethod
+    def from_dict(d):
+        object = Field(d["id"], d["class_id"], d["name"], d["field_type"], d["initial_value"])
+        return object
 
 _get_field = _make_type_getter(Field)
 
@@ -278,8 +339,9 @@ def field_get_name(field_id):
 def field_set_name(field_id, name, source="model"):
     field = _get_field(field_id)
     field.name = name
-    _emit.class_changed(field.klass.id, source)
-    for object_id in field.klass.objects:
+    klass = _get_class(field.klass)
+    _emit.class_changed(klass.id, source)
+    for object_id in klass.objects:
         _emit.object_changed(object_id, source)
 
 def field_get_type(field_id):
@@ -368,9 +430,10 @@ def field_set_type(field_id, new_type, source="model"):
     field.type = new_type
     field.initial_value = new_initial_value
 
-    _emit.class_changed(field.klass.id, source)
-    position = field.klass.fields.index(field_id)
-    for object_id in field.klass.objects:
+    klass = _get_class(field.klass)
+    _emit.class_changed(klass.id, source)
+    position = klass.fields.index(field_id)
+    for object_id in klass.objects:
         # Convert type of corresponding member in object
         object = _get_object(object_id)
         member_id = object.members[position]
@@ -381,19 +444,20 @@ def field_set_type(field_id, new_type, source="model"):
 
 def field_delete(field_id, source="model"):
     field = _get_field(field_id)
+    klass = _get_class(field.klass)
     # Remove the field from its class, saving its position
-    position = field.klass.fields.index(field_id)
-    field.klass.fields.pop(position)
+    position = klass.fields.index(field_id)
+    klass.fields.pop(position)
     # Remove the associated member from each of the objects of the class
-    for object_id in field.klass.objects:
+    for object_id in klass.objects:
         object = _get_object(object_id)
         member_id = object.members[position]
         __type_id_map[Member].remove(member_id)
         del __id_entity_map[member_id]
         object.members.pop(position)
     # Signal the change to the class and object event handlers
-    _emit.class_changed(field.klass.id, source)
-    for object_id in field.klass.objects:
+    _emit.class_changed(klass.id, source)
+    for object_id in klass.objects:
         _emit.object_changed(object_id, source)
     # Remove the field from the top-level data structures
     __type_id_map[Field].remove(field_id)
@@ -401,11 +465,24 @@ def field_delete(field_id, source="model"):
 
 # Members
 
-class Member(object):
-    def __init__(self, field):
-        self.id = make_id()
-        self.field = field
-        self.value = field.initial_value
+class Member(object, metaclass=TypeRepr):
+    def __init__(self, id, field_id, value=None):
+        self.id = id
+        self.field = field_id
+        self.value = value if not value is None else field_get_initial_value(field_id)
+
+    def to_dict(self):
+        return {
+            "type": Member,
+            "id": self.id,
+            "field": self.field,
+            "value": self.value,
+        }
+    
+    @classmethod
+    def from_dict(d):
+        member = Member(d["id"], d["field"], d["value"])
+        return member
 
 _get_member = _make_type_getter(Member)
 
@@ -425,7 +502,7 @@ def member_set_value(member_id, value):
 
 def member_get_field(member_id):
     member = _get_member(member_id)
-    return member.field.id
+    return member.field
 
 # Relations
 
@@ -438,17 +515,17 @@ class RelationException(Exception):
         )
         super().__init__(message)
 
-class Relation(event.Emitter, VisibilitySuppressor):
-    def __init__(self, name, color=None, directed=True, acyclic=True, max_innodes=-1, max_outnodes=-1):
+class Relation(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
+    def __init__(self, id, name):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self)
-        self.id = make_id()
+        self.id = id
         self.name = name
-        self.color = color if color else Color.random()
-        self.directed = directed
-        self.acyclic = acyclic
-        self.max_innodes = max_innodes
-        self.max_outnodes = max_outnodes
+        self.color = Color.random()
+        self.directed = True
+        self.acyclic = True
+        self.max_innodes = -1
+        self.max_outnodes = -1
         self.on_add = "do-nothing"
         self.on_delete = "do-nothing"
         self.reverse = False
@@ -460,12 +537,47 @@ class Relation(event.Emitter, VisibilitySuppressor):
         for edge_id in get_relation_edges(self.id):
             yield __id_entity_map[edge_id]
 
+    def to_dict(self):
+        return {
+            "type": Member,
+            "id": self.id,
+            "name": self.name,
+            "color": self.color,
+            "directed": self.directed,
+            "acyclic": self.acyclic,
+            "max_innodes": self.max_innodes,
+            "max_outnodes": self.max_outnodes,
+            "on_add": self.on_add,
+            "on_delete": self.on_delete,
+            "reverse": self.reverse,
+            "innodes": dict(self.innodes),
+            "outnodes": dict(self.outnodes),
+            "forest": list(self.forest),
+        }
+    
+    @classmethod
+    def from_dict(d):
+        relation = Relation(d["id"], d["name"])
+        relation.color = d["color"]
+        relation.directed = d["directed"]
+        relation.acyclic = d["acyclic"]
+        relation.max_innodes = d["max_innodes"]
+        relation.max_outnodes = d["max_outnodes"]
+        relation.on_add = d["on_add"]
+        relation.on_delete = d["on_delete"]
+        relation.reverse = d["reverse"]
+        relation.innodes = d["innodes"]
+        relation.outnodes = d["outnodes"]
+        relation.forest = d["forest"]
+        return relation
+
 def relation_new(name, *args, source="model", **kwargs):
-    relation = Relation(name, *args, **kwargs)
-    __id_entity_map[relation.id] = relation
-    __type_id_map[Relation].append(relation.id)
-    _emit.relation_created(relation.id, source)
-    return relation.id
+    relation_id = make_id()
+    relation = Relation(relation_id, name, *args, **kwargs)
+    __id_entity_map[relation_id] = relation
+    __type_id_map[Relation].append(relation_id)
+    _emit.relation_created(relation_id, source)
+    return relation_id
 
 _get_relation = _make_type_getter(Relation)
 
@@ -565,7 +677,7 @@ def relation_get_max_outnodes(relation_id):
 
 def relation_set_max_outnodes(relation_id, max_outnodes, source="model"):
     relation = _get_relation(relation_id)
-    relation.max_outnodes = max_innodes
+    relation.max_outnodes = max_outnodes
     _emit.relation_changed(relation_id, source)
 
 def relation_get_on_add_handler(relation_id):
@@ -600,11 +712,11 @@ def relation_is_tree(relation_id):
 
 # Edges
 
-class Edge(event.Emitter, VisibilitySuppressor):
-    def __init__(self, relation_id, src_id, dst_id, suppressors=set()):
+class Edge(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
+    def __init__(self, id, relation_id, src_id, dst_id, suppressors=set()):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self, suppressors)
-        self.id = make_id()
+        self.id = id
         self.relation_id = relation_id
         self.src_id = src_id
         self.dst_id = dst_id
@@ -615,13 +727,29 @@ class Edge(event.Emitter, VisibilitySuppressor):
     def visibility_changed(self):
         _emit.edge_changed(self.id, "model")
 
+    def to_dict(self):
+        return {
+            "type": Edge,
+            "id": self.id,
+            "relation_id": self.relation_id,
+            "src_id": self.src_id,
+            "dst_id": self.dst_id,
+            "suppressors": self._suppressors,
+        }
+    
+    @classmethod
+    def from_dict(d):
+        edge = Edge(d["id"], d["relation_id"], d["src_id"], d["dst_id"], d["suppressors"])
+        return edge
+
 def edge_new(relation_id, srcid, dstid, source="model"):
     relation = _get_relation(relation_id)
-    edge = Edge(relation_id, srcid, dstid, relation.suppressors())
-    _edge_connect(relation_id, srcid, dstid, edge.id)
+    edge_id = make_id()
+    edge = Edge(edge_id, relation_id, srcid, dstid, relation.suppressors())
+    _edge_connect(relation_id, srcid, dstid, edge_id)
     if not relation.directed:
         try:
-            _edge_connect(relation_id, dstid, srcid, edge.id)
+            _edge_connect(relation_id, dstid, srcid, edge_id)
         except RelationException as exception:
             _edge_disconnect(relation_id, srcid, dstid, source)
             raise exception
@@ -629,14 +757,14 @@ def edge_new(relation_id, srcid, dstid, source="model"):
     _edge_update_forest(relation_id, srcid)
     _edge_update_forest(relation_id, dstid)
     
-    __type_id_map[Edge].add(edge.id)
-    __id_entity_map[edge.id] = edge
-    _emit.edge_created(edge.id, source)
+    __type_id_map[Edge].add(edge_id)
+    __id_entity_map[edge_id] = edge
+    _emit.edge_created(edge_id, source)
     try:
-        lang.eval(lang.read(relation.on_add))(edge.id)
+        lang.eval(lang.read(relation.on_add))(edge_id)
     except Exception as e:
         log.error(e.message)
-    return edge.id
+    return edge_id
 
 def _edge_update_forest(relation_id, object_id):
     relation = _get_relation(relation_id)
@@ -730,18 +858,32 @@ def edge_get_color(edge_id):
 
 # Object Filters
 
-class ObjectFilter(object):
-    def __init__(self, name, predicate):
-        self.id = make_id()
+class ObjectFilter(object, metaclass=TypeRepr):
+    def __init__(self, id, name, predicate):
+        self.id = id
         self.name = name
         self.predicate = predicate
 
+    def to_dict(self):
+        return {
+            "type": ObjectFilter,
+            "id": self.id,
+            "name": self.name,
+            "predicate": self.predicate,
+        }
+    
+    @classmethod
+    def from_dict(d):
+        edge = ObjectFilter(d["id"], d["name"], d["predicate"])
+        return edge
+
 def object_filter_new(title, predicate, source="model"):
-    filter = ObjectFilter(title, predicate)
-    __id_entity_map[filter.id] = filter
-    __type_id_map[ObjectFilter].add(filter.id)
-    _emit.object_filter_created(filter.id, source)
-    return filter.id
+    filter_id = make_id()
+    filter = ObjectFilter(filter_id, title, predicate)
+    __id_entity_map[filter_id] = filter
+    __type_id_map[ObjectFilter].add(filter_id)
+    _emit.object_filter_created(filter_id, source)
+    return filter_id
 
 _get_object_filter = _make_type_getter(ObjectFilter)
 
@@ -769,10 +911,13 @@ def get_object_filters():
 
 def _event_handler(self, id, source):
     pass
+def _reload_handler(self):
+    pass
 _object_types = ["object", "class", "relation", "edge", "object_filter"]
 _event_types = ["created", "changed", "deleted"]
 _event_handler_names = ["{0}_{1}".format(e[0], e[1]) for e in itertools.product(_object_types, _event_types)]
 _event_handler_map = {name : _event_handler for name in _event_handler_names}
+_event_handler_map["reload"] = _reload_handler
 Delegate = type("Delegate", (), _event_handler_map)
 
 def _super_delegate_init(self, delegates):
@@ -784,7 +929,11 @@ def _make_super_delegate_handler(method_name):
         for delegate in list(self.delegates):
             getattr(delegate, method_name)(id, source)
     return handler
+def _reload_super_delegate_handler(self):
+    for delegate in list(self.delegates):
+        delegate.reload()
 _event_handler_map = {e : _make_super_delegate_handler(e) for e in _event_handler_names}
+_event_handler_map["reload"] = _reload_super_delegate_handler
 _event_handler_map["__init__"] = _super_delegate_init
 __SuperDelegate = type("__SuperDelegate", (Delegate,), _event_handler_map)
 
@@ -840,6 +989,7 @@ def delete(entity_id):
         Object: object_delete,
         Relation: relation_delete,
         Field: field_delete,
+        ObjectFilter: object_filter_delete,
     }
     assert entity_type in type_delete_map
     type_delete_map[entity_type](entity_id)
@@ -856,22 +1006,44 @@ def reset():
 
 # Types
 
-class Integer(object):
+class Integer(object, metaclass=TypeRepr):
     initial_value = 0
     is_valid = lambda value: type(value) == int
     convert = lambda value: int(value)
 
-class Float(object):
+class Float(object, metaclass=TypeRepr):
     initial_value = 0.0
     is_valid = lambda value: type(value) == float
     convert = lambda value: float(value)
 
-class String(object):
+class String(object, metaclass=TypeRepr):
     initial_value = ""
     is_valid = lambda value: type(value) == str
     convert = lambda value: str(value)
 
-class Bool(object):
+class Bool(object, metaclass=TypeRepr):
     initial_value = False
     is_valid = lambda value: type(value) == bool
     convert = lambda value: bool(value)
+
+# Saving and Loading
+
+def _model():
+    return {
+        "version": "0.1.0",
+        "id_entity_map": {id: object.to_dict() for id, object in __id_entity_map.items()},
+        "type_id_map": dict(__type_id_map),
+    }
+
+def write(file):
+    file.write(repr(_model()))
+
+def read(file):
+    data = eval(file.read())
+    # TODO: Switch on data version
+    reset()
+    global __id_entity_map
+    __id_entity_map = {id: dict['type'].from_dict(dict) for id, dict in data["id_entity_map"]}
+    global __type_id_map
+    __type_id_map = data["type_id"]
+    _emit.reload()
