@@ -81,7 +81,7 @@ class Class(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
             "objects": set(self.objects),
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
         klass = Class(d["id"], d["name"], d["color"])
         klass.fields = d["fields"]
@@ -174,12 +174,11 @@ def class_add_field(class_id, field_name, field_type, initial_value=None, source
 # Objects
 
 class Object(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
-    def __init__(self, id, class_id, suppressors, *values):
+    def __init__(self, id, class_id, suppressors, name="New Object"):
         event.Emitter.__init__(self)
         VisibilitySuppressor.__init__(self, suppressors)
         self.id = id
-        type_name = class_get_name(class_id)
-        self.name = "New {0}".format(type_name)
+        self.name = name
         self.klass = class_id
         self.members = []
     
@@ -201,17 +200,16 @@ class Object(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
             "suppressors": self._suppressors,
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
-        object = Object(d["id"], d["class_id"], d["suppressors"])
-        object.name = d["name"]
+        object = Object(d["id"], d["class_id"], d["suppressors"], name=d["name"])
         object.members = d["members"]
         return object
 
 def object_new(class_id, source="model"):
     klass = _get_class(class_id)
     object_id = make_id()
-    object = Object(object_id, class_id, klass.suppressors())
+    object = Object(object_id, class_id, klass.suppressors(), name="New {0}".format(klass.name))
 
     __id_entity_map[object_id] = object
     klass.objects.add(object_id)
@@ -325,7 +323,7 @@ class Field(object, metaclass=TypeRepr):
             "initial_value": self.initial_value,
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
         object = Field(d["id"], d["class_id"], d["name"], d["field_type"], d["initial_value"])
         return object
@@ -479,7 +477,7 @@ class Member(object, metaclass=TypeRepr):
             "value": self.value,
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
         member = Member(d["id"], d["field"], d["value"])
         return member
@@ -539,7 +537,7 @@ class Relation(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
 
     def to_dict(self):
         return {
-            "type": Member,
+            "type": Relation,
             "id": self.id,
             "name": self.name,
             "color": self.color,
@@ -555,7 +553,7 @@ class Relation(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
             "forest": list(self.forest),
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
         relation = Relation(d["id"], d["name"])
         relation.color = d["color"]
@@ -737,7 +735,7 @@ class Edge(event.Emitter, VisibilitySuppressor, metaclass=TypeRepr):
             "suppressors": self._suppressors,
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
         edge = Edge(d["id"], d["relation_id"], d["src_id"], d["dst_id"], d["suppressors"])
         return edge
@@ -859,9 +857,10 @@ def edge_get_color(edge_id):
 # Object Filters
 
 class ObjectFilter(object, metaclass=TypeRepr):
-    def __init__(self, id, name, predicate):
+    def __init__(self, id, name, code, predicate):
         self.id = id
         self.name = name
+        self.code = code
         self.predicate = predicate
 
     def to_dict(self):
@@ -869,17 +868,19 @@ class ObjectFilter(object, metaclass=TypeRepr):
             "type": ObjectFilter,
             "id": self.id,
             "name": self.name,
-            "predicate": self.predicate,
+            "code": self.code,
         }
     
-    @classmethod
+    @staticmethod
     def from_dict(d):
-        edge = ObjectFilter(d["id"], d["name"], d["predicate"])
+        predicate = lang.eval(lang.read(d["code"]))
+        edge = ObjectFilter(d["id"], d["name"], d["code"], predicate)
         return edge
 
-def object_filter_new(title, predicate, source="model"):
+def object_filter_new(title, code, source="model"):
     filter_id = make_id()
-    filter = ObjectFilter(filter_id, title, predicate)
+    predicate = lang.eval(lang.read(code))
+    filter = ObjectFilter(filter_id, title, code, predicate)
     __id_entity_map[filter_id] = filter
     __type_id_map[ObjectFilter].add(filter_id)
     _emit.object_filter_created(filter_id, source)
@@ -911,7 +912,7 @@ def get_object_filters():
 
 def _event_handler(self, id, source):
     pass
-def _reload_handler(self):
+def _reload_handler(self, source):
     pass
 _object_types = ["object", "class", "relation", "edge", "object_filter"]
 _event_types = ["created", "changed", "deleted"]
@@ -929,9 +930,9 @@ def _make_super_delegate_handler(method_name):
         for delegate in list(self.delegates):
             getattr(delegate, method_name)(id, source)
     return handler
-def _reload_super_delegate_handler(self):
+def _reload_super_delegate_handler(self, source):
     for delegate in list(self.delegates):
-        delegate.reload()
+        delegate.reload(source)
 _event_handler_map = {e : _make_super_delegate_handler(e) for e in _event_handler_names}
 _event_handler_map["reload"] = _reload_super_delegate_handler
 _event_handler_map["__init__"] = _super_delegate_init
@@ -1043,7 +1044,7 @@ def read(file):
     # TODO: Switch on data version
     reset()
     global __id_entity_map
-    __id_entity_map = {id: dict['type'].from_dict(dict) for id, dict in data["id_entity_map"]}
+    __id_entity_map = {id: o['type'].from_dict(o) for id, o in data["id_entity_map"].items()}
     global __type_id_map
-    __type_id_map = data["type_id"]
-    _emit.reload()
+    __type_id_map = data["type_id_map"]
+    _emit.reload("model")

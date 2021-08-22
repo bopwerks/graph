@@ -252,6 +252,13 @@ class QObjectFilter(QtWidgets.QTableWidget, model.Delegate):
 
         model.add_delegate(self)
     
+    def reload(self, source):
+        self.clearContents()
+        self._matches = set()
+        self._matches_list = []
+        for object_id in model.get_objects():
+            self.object_created(object_id, source)
+    
     def insert_object(self, object_id, row):
         class_id = model.object_get_class(object_id)
         class_name = model.class_get_name(class_id)
@@ -545,12 +552,17 @@ class QNodeSceneDelegate(model.Delegate):
         model.Delegate.__init__(self)
         self.scene = scene
     
+    def reload(self, source):
+        for object_id in model.get_objects():
+            self.object_created(object_id, source)
+        for edge_id in model.get_edges():
+            self.edge_created(edge_id, source)
+    
     def object_created(self, object_id, source):
         if source == "model":
             # TODO: Position in a suitable place
             graphical_object = make_graphical_object(object_id)
-            model_object = model.get_object(object_id)
-            graphical_object.setVisible(model_object.is_visible())
+            graphical_object.setVisible(model.object_is_visible(object_id))
             self.scene.addItem(graphical_object)
 
     def object_deleted(self, object_id, source):
@@ -588,6 +600,11 @@ class QClassListDelegate(model.Delegate):
     def __init__(self, class_list):
         model.Delegate.__init__(self)
         self.class_list = class_list
+    
+    def reload(self, source):
+        self.class_list.clear()
+        for class_id in model.get_classes():
+            self.class_created(class_id, source)
     
     def class_created(self, class_id, source):
         class_name = model.class_get_name(class_id)
@@ -658,6 +675,11 @@ class QRelationListDelegate(model.Delegate):
     def __init__(self, relation_list):
         model.Delegate.__init__(self)
         self.relation_list = relation_list
+    
+    def reload(self, source):
+        self.relation_list.clear()
+        for relation_id in model.get_relations():
+            self.relation_created(relation_id, source)
     
     def relation_created(self, relation_id, source):
         relation_name = model.relation_get_name(relation_id)
@@ -815,6 +837,11 @@ class QMainWindowDelegate(model.Delegate):
     def __init__(self, window):
         self.window = window
     
+    def reload(self, source):
+        self.window.clear_object_filters()
+        for object_filter_id in model.get_object_filters():
+            self.object_filter_created(object_filter_id, source)
+    
     def object_filter_created(self, id, source):
         self.window.add_object_filter(id)
     
@@ -824,6 +851,7 @@ class QMainWindowDelegate(model.Delegate):
 class QMainWindow(QtWidgets.QMainWindow):
     def __init__(self, title):
         super().__init__()
+        self._title = title
         self._filename = ""
 
         # set size to 70% of screen
@@ -863,6 +891,9 @@ class QMainWindow(QtWidgets.QMainWindow):
         save_file_as = QtWidgets.QAction("Save &As", self)
         save_file_as.triggered.connect(self._save_file_as)
         file_menu.addAction(save_file_as)
+        open_file = QtWidgets.QAction("&Open", self)
+        open_file.triggered.connect(self._open_file)
+        file_menu.addAction(open_file)
 
         model.class_new("Tag")
         goal_class = model.class_new("Goal")
@@ -872,7 +903,7 @@ class QMainWindow(QtWidgets.QMainWindow):
         model.relation_set_directed(relation_id, True)
         model.relation_set_acyclic(relation_id, True)
         model.relation_set_max_outnodes(relation_id, 1)
-        model.object_filter_new("Test Filter", lambda object_id: True)
+        model.object_filter_new("Test Filter", "(lambda (object-id) 1)")
         model.class_add_field(goal_class, "Foo", model.Integer, 13)
         model.class_add_field(goal_class, "Bar", model.Bool, True)
         model.class_add_field(goal_class, "Baz", model.String, "Quux")
@@ -891,13 +922,25 @@ class QMainWindow(QtWidgets.QMainWindow):
         if not user_cancelled_save:
             with open(self._filename, 'w') as fp:
                 model.write(fp)
+            self.setWindowTitle("{0} - {1}".format(self._filename, self._title))
     
     def _save_file_as(self, is_checked):
-        # TODO: Ask the user to choose a path
-        user_cancelled_save = True
-        if not user_cancalled_save:
+        self._filename, filename_filter = QtWidgets.QFileDialog.getSaveFileName(self)
+        log.info("Filename: '%s', %s", self._filename, filename_filter)
+        user_cancelled_save = not self._filename
+        if not user_cancelled_save:
             with open(self._filename, 'w') as fp:
                 model.write(fp)
+            self.setWindowTitle("{0} - {1}".format(self._filename, self._title))
+    
+    def _open_file(self, is_checked):
+        filename, filename_filter = QtWidgets.QFileDialog.getOpenFileName(self)
+        user_cancelled_open = not filename
+        if not user_cancelled_open:
+            with open(filename) as fp:
+                model.read(fp)
+            self._filename = filename
+            self.setWindowTitle("{0} - {1}".format(self._filename, self._title))
 
     def add_button(self, text, icontype, callback):
         icon = self.style().standardIcon(icontype)
@@ -921,6 +964,11 @@ class QMainWindow(QtWidgets.QMainWindow):
         dock.to_be_deleted = True
         dock.close()
         del self._object_filters[id]
+    
+    def clear_object_filters(self):
+        for object_filter_id in list(self._object_filters.keys()):
+            self.remove_object_filter(object_filter_id)
+        self._last_object_filter = 0
     
     def _on_button_click(self, *args):
         model.object_filter_new(
